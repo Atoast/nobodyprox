@@ -6,12 +6,15 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"strings"
 
 	"github.com/nobodyprox/nobodyprox/pkg/cert"
+	"github.com/nobodyprox/nobodyprox/pkg/filter"
 )
 
 type Proxy struct {
-	CA *cert.CA
+	CA     *cert.CA
+	Filter *filter.Engine
 }
 
 func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -29,7 +32,6 @@ func (p *Proxy) handleConnect(w http.ResponseWriter, r *http.Request) {
 		host = r.Host
 	}
 
-	// Generate a certificate for the host
 	tlsCert, err := p.CA.GenerateCert(host)
 	if err != nil {
 		http.Error(w, "Failed to generate certificate", http.StatusInternalServerError)
@@ -68,7 +70,7 @@ func (p *Proxy) handleConnect(w http.ResponseWriter, r *http.Request) {
 
 	// Connect to the remote server
 	remoteConn, err := tls.Dial("tcp", r.Host, &tls.Config{
-		InsecureSkipVerify: false, // In production we should verify, but for now let's be careful
+		InsecureSkipVerify: false,
 	})
 	if err != nil {
 		log.Printf("Failed to connect to remote server %s: %v", r.Host, err)
@@ -76,23 +78,57 @@ func (p *Proxy) handleConnect(w http.ResponseWriter, r *http.Request) {
 	}
 	defer remoteConn.Close()
 
-	// In Phase 1, we just bridge the connections. 
-	// In Phase 2, we will wrap these connections to inspect/redact data.
+	// Intercept the HTTP requests within the TLS connection
+	// We wrap the connections to redact data on the fly
 	errChan := make(chan error, 2)
 	go func() {
-		_, err := io.Copy(remoteConn, tlsConn)
-		errChan <- err
+		errChan <- p.pipeWithRedaction(remoteConn, tlsConn)
 	}()
 	go func() {
-		_, err := io.Copy(tlsConn, remoteConn)
-		errChan <- err
+		errChan <- p.pipeWithRedaction(tlsConn, remoteConn)
 	}()
 
 	<-errChan
 }
 
+// pipeWithRedaction copies data from src to dst while redacting sensitive information
+func (p *Proxy) pipeWithRedaction(dst io.Writer, src io.Reader) error {
+	buf := make([]byte, 32*1024)
+	for {
+		nr, err := src.Read(buf)
+		if nr > 0 {
+			redacted := p.Filter.RedactBytes(buf[0:nr])
+			nw, err := dst.Write(redacted)
+			if err != nil {
+				return err
+			}
+			if nw < len(redacted) {
+				return io.ErrShortWrite
+			}
+		}
+		if err != nil {
+			if err == io.EOF {
+				return nil
+			}
+			return err
+		}
+	}
+}
+
 func (p *Proxy) handleHTTP(w http.ResponseWriter, r *http.Request) {
-	// Simple HTTP proxying
+	// Simple HTTP proxying with redirection (non-TLS)
+	// Read the body, redact it, and forward it
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	r.Body.Close()
+
+	redactedBody := p.Filter.RedactBytes(body)
+	r.Body = io.NopCloser(strings.NewReader(string(redactedBody)))
+	r.ContentLength = int64(len(redactedBody))
+
 	resp, err := http.DefaultTransport.RoundTrip(r)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusServiceUnavailable)
@@ -106,5 +142,11 @@ func (p *Proxy) handleHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	w.WriteHeader(resp.StatusCode)
-	io.Copy(w, resp.Body)
+
+	// Redact response as well
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return
+	}
+	w.Write(p.Filter.RedactBytes(respBody))
 }

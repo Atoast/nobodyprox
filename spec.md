@@ -14,18 +14,18 @@ A fast, transparent proxy designed to intercept and filter sensitive data from o
 - **TLS/HTTPS Interception:** To inspect payloads, the proxy will utilize a local Root CA to decrypt HTTPS traffic (MITM), inspect the content, and re-encrypt it before forwarding.
 - **Filtering Engine:** High-performance hybrid engine.
   - **Fast Path (Default):** Regex and string-matching for structured data (API keys, SSNs).
-  - **Deep Path (Optional):** Lightweight Named-entity recognition (NER) for unstructured PII (Names, Addresses). Potential implementation paths:
-    - **Option A (Pure Go):** `Prose (v3)` for zero-dependency, high-speed basic NER.
-    - **Option B (AI Runtime):** `Go-ONNX` to run lightweight transformer models (e.g., DistilBERT-multilingual) for better Danish/English accuracy without a Python dependency.
-    - **Option C (High Accuracy):** `Go-spaCy` or a `Python Sidecar (DaCy)` for state-of-the-art Danish NLP (best catch-rate, highest latency).
-  - **Confidence Control:** Configurable thresholds (0.0 to 1.0) for each entity type to balance between "Recall" (catch everything) and "Precision" (minimize false positives).
+  - **Deep Path (Optional):** Lightweight Named-entity recognition (NER) for unstructured PII (Names, Addresses).
+  - **Pseudonymization Layer:** An optional layer to replace sensitive data with consistent synthetic values (e.g., `Alice` -> `User_123`) to maintain AI context without leaking real data.
 
 ## 4. Filtering Capabilities
 - **Pre-defined Rules:** Common credentials (AWS, GitHub, Stripe keys, etc.), standard PII (Credit Cards, SSNs).
 - **Named-entity recognition (NER):** Optional context-aware detection for personal names, locations, and organizations. Special focus on **Danish (DaCy/DaNE)** and **English** support.
-  - **Configurable Thresholds:** Users can set minimum confidence levels per entity type in the configuration.
+- **Pseudonymization (Consistent Redaction):** 
+  - **Mapping Table:** Maintain a secure, session-based mapping of `Original Value` -> `Synthetic Placeholder`.
+  - **Consistency:** Ensure the same real-world entity always receives the same placeholder across all requests/responses.
+  - **Context Retention:** Allows AI tools to follow conversations/logic involving multiple entities without revealing their identities.
 - **Custom Rules:** User-defined Regex or heuristics to match proprietary internal data patterns.
-- **Action:** Replace matched sensitive data with standardized placeholders (e.g., `[REDACTED: API_KEY]`).
+- **Action Modes:** Each rule can be configured for `REDACT` (static placeholder) or `PSEUDONYMIZE` (consistent synthetic value).
 
 ## 5. Configuration & Management
 - **Initial Phase (v1):** 

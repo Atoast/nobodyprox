@@ -1,14 +1,29 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"net/http"
 
 	"github.com/nobodyprox/nobodyprox/pkg/cert"
+	"github.com/nobodyprox/nobodyprox/pkg/config"
+	"github.com/nobodyprox/nobodyprox/pkg/filter"
 	"github.com/nobodyprox/nobodyprox/pkg/proxy"
 )
 
 func main() {
+	// Load Configuration
+	cfg, err := config.LoadConfig("config.yaml")
+	if err != nil {
+		log.Fatalf("Failed to load config: %v", err)
+	}
+
+	// Initialize Filter Engine
+	engine, err := filter.NewEngine(cfg.Rules)
+	if err != nil {
+		log.Fatalf("Failed to initialize filter engine: %v", err)
+	}
+
 	// Initialize CA
 	ca, err := cert.LoadOrCreateCA("certs")
 	if err != nil {
@@ -16,12 +31,13 @@ func main() {
 	}
 
 	p := &proxy.Proxy{
-		CA: ca,
+		CA:     ca,
+		Filter: engine,
 	}
 
-	addr := ":8080"
+	addr := fmt.Sprintf(":%d", cfg.ProxyPort)
 	log.Printf("Privacy Proxy starting on %s", addr)
-	log.Printf("To use: configure your tool to use HTTP_PROXY=http://localhost:8080")
+	log.Printf("To use: configure your tool to use HTTP_PROXY=http://localhost%s", addr)
 	log.Printf("And trust the Root CA at ./certs/ca.crt")
 
 	if err := http.ListenAndServe(addr, p); err != nil {
