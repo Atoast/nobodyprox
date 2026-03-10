@@ -18,10 +18,12 @@ A fast, transparent proxy designed to intercept and filter sensitive data from o
     - **Option A (Pure Go):** `Prose (v3)` for zero-dependency, high-speed basic NER.
     - **Option B (AI Runtime):** `Go-ONNX` to run lightweight transformer models (e.g., DistilBERT-multilingual) for better Danish/English accuracy without a Python dependency.
     - **Option C (High Accuracy):** `Go-spaCy` or a `Python Sidecar (DaCy)` for state-of-the-art Danish NLP (best catch-rate, highest latency).
+  - **Confidence Control:** Configurable thresholds (0.0 to 1.0) for each entity type to balance between "Recall" (catch everything) and "Precision" (minimize false positives).
 
 ## 4. Filtering Capabilities
 - **Pre-defined Rules:** Common credentials (AWS, GitHub, Stripe keys, etc.), standard PII (Credit Cards, SSNs).
 - **Named-entity recognition (NER):** Optional context-aware detection for personal names, locations, and organizations. Special focus on **Danish (DaCy/DaNE)** and **English** support.
+  - **Configurable Thresholds:** Users can set minimum confidence levels per entity type in the configuration.
 - **Custom Rules:** User-defined Regex or heuristics to match proprietary internal data patterns.
 - **Action:** Replace matched sensitive data with standardized placeholders (e.g., `[REDACTED: API_KEY]`).
 
