@@ -8,8 +8,9 @@ import (
 )
 
 type Config struct {
-	ProxyPort int           `yaml:"proxy_port"`
-	Rules     []filter.Rule `yaml:"rules"`
+	ProxyPort   int           `yaml:"proxy_port"`
+	NERProvider string        `yaml:"ner_provider"`
+	Rules       []filter.Rule `yaml:"rules"`
 }
 
 // LoadConfig reads the configuration from a YAML file
@@ -33,7 +34,8 @@ func LoadConfig(path string) (*Config, error) {
 
 func createDefaultConfig(path string) (*Config, error) {
 	cfg := &Config{
-		ProxyPort: 8080,
+		ProxyPort:   8080,
+		NERProvider: "prose",
 		Rules: []filter.Rule{
 			{
 				Name:    "OPENAI_KEY",
