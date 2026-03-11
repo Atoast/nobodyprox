@@ -174,6 +174,136 @@ func NewONNXProvider(modelPath, vocabPath, configPath, onnxURL, modelURL, vocabU
 	}, nil
 }
 
+func (p *ONNXProvider) Name() string {
+	return "onnx"
+}
+
+func (p *ONNXProvider) ExtractEntities(text string) ([]Entity, error) {
+	if text == "" || p.Tokenizer == nil || p.Session == nil {
+		return nil, nil
+	}
+
+	// 1. Tokenize
+	inputIds, attentionMask, starts, ends := p.Tokenizer.Tokenize(text)
+	
+	// 2. Fill tensors
+	idsData := p.inputIdsTensor.GetData()
+	maskData := p.attentionMaskTensor.GetData()
+	
+	for i := range idsData {
+		idsData[i] = 0
+		maskData[i] = 0
+	}
+
+	for i := range inputIds {
+		idsData[i] = int64(inputIds[i])
+		maskData[i] = int64(attentionMask[i])
+	}
+
+	if p.tokenTypeIdsTensor != nil {
+		typeData := p.tokenTypeIdsTensor.GetData()
+		for i := range typeData {
+			typeData[i] = 0
+		}
+	}
+
+	// 3. Run inference
+	err := p.Session.Run()
+	if err != nil {
+		return nil, err
+	}
+
+	logits := p.outputTensor.GetData()
+	maxLabelIdx := 0
+	for k := range p.Labels {
+		if k > maxLabelIdx {
+			maxLabelIdx = k
+		}
+	}
+	numLabels := maxLabelIdx + 1
+	seqLen := len(inputIds)
+
+	// 4. Post-process logits
+	var entities []Entity
+	var currentIds []int
+	var currentType string
+	var currentStart int
+	var currentEnd int
+
+	for i := 0; i < seqLen; i++ {
+		// Find Argmax
+		maxLogit := float32(-1e10)
+		maxIdx := 0
+		for j := 0; j < numLabels; j++ {
+			val := logits[i*numLabels+j]
+			if val > maxLogit {
+				maxLogit = val
+				maxIdx = j
+			}
+		}
+
+		label := p.Labels[maxIdx]
+		baseLabel := strings.TrimPrefix(strings.TrimPrefix(label, "B-"), "I-")
+		isBegin := strings.HasPrefix(label, "B-")
+		isInside := strings.HasPrefix(label, "I-")
+
+		if label == "O" || label == "" {
+			if len(currentIds) > 0 {
+				entities = append(entities, Entity{
+					Type:       EntityType(currentType),
+					Text:       text[currentStart:currentEnd],
+					Start:      currentStart,
+					End:        currentEnd,
+					Confidence: 1.0,
+				})
+				currentIds = nil
+				currentType = ""
+			}
+			continue
+		}
+
+		// Skip special tokens even if they have an entity label
+		if inputIds[i] == 0 || inputIds[i] == 101 || inputIds[i] == 102 { // PAD, CLS, SEP
+			continue
+		}
+
+		if isBegin || (isInside && baseLabel != currentType) || (currentType != "" && baseLabel != currentType) {
+			if len(currentIds) > 0 {
+				entities = append(entities, Entity{
+					Type:       EntityType(currentType),
+					Text:       text[currentStart:currentEnd],
+					Start:      currentStart,
+					End:        currentEnd,
+					Confidence: 1.0,
+				})
+			}
+			currentIds = []int{inputIds[i]}
+			currentType = baseLabel
+			currentStart = starts[i]
+			currentEnd = ends[i]
+		} else {
+			currentIds = append(currentIds, inputIds[i])
+			if currentType == "" {
+				currentType = baseLabel
+				currentStart = starts[i]
+			}
+			currentEnd = ends[i]
+		}
+	}
+
+	if len(currentIds) > 0 {
+		entities = append(entities, Entity{
+			Type:       EntityType(currentType),
+			Text:       text[currentStart:currentEnd],
+			Start:      currentStart,
+			End:        currentEnd,
+			Confidence: 1.0,
+		})
+	}
+
+	return entities, nil
+}
+
 func parseLabels(configPath string) (map[int]string, error) {
 	data, err := os.ReadFile(configPath)
 	if err != nil {
@@ -216,131 +346,6 @@ func parseLabels(configPath string) (map[int]string, error) {
 	}
 
 	return labels, nil
-}
-
-func (p *ONNXProvider) Name() string {
-	return "onnx"
-}
-
-func (p *ONNXProvider) ExtractEntities(text string) ([]Entity, error) {
-	if text == "" || p.Tokenizer == nil || p.Session == nil {
-		return nil, nil
-	}
-
-	// 1. Tokenize
-	inputIds, attentionMask := p.Tokenizer.Tokenize(text)
-	
-	// 2. Fill tensors
-	idsData := p.inputIdsTensor.GetData()
-	maskData := p.attentionMaskTensor.GetData()
-	
-	// Reset data if it was used before (AdvancedSession reuse)
-	for i := range idsData {
-		idsData[i] = 0
-		maskData[i] = 0
-	}
-
-	for i := range inputIds {
-		idsData[i] = int64(inputIds[i])
-		maskData[i] = int64(attentionMask[i])
-	}
-
-	if p.tokenTypeIdsTensor != nil {
-		typeData := p.tokenTypeIdsTensor.GetData()
-		for i := range typeData {
-			typeData[i] = 0
-		}
-	}
-
-	// 3. Run inference
-	err := p.Session.Run()
-	if err != nil {
-		return nil, err
-	}
-
-	logits := p.outputTensor.GetData()
-	numLabels := len(p.Labels)
-	// Some models might have more labels in the output than we mapped
-	if len(p.Labels) > 0 {
-		maxMapped := 0
-		for k := range p.Labels {
-			if k > maxMapped {
-				maxMapped = k
-			}
-		}
-		if maxMapped + 1 > numLabels {
-			numLabels = maxMapped + 1
-		}
-	}
-	
-	seqLen := len(inputIds)
-
-	// 4. Post-process logits
-	var entities []Entity
-	var currentIds []int
-	var currentType string
-
-	for i := 0; i < seqLen; i++ {
-		// Find Argmax
-		maxLogit := float32(-1e10)
-		maxIdx := 0
-		for j := 0; j < numLabels; j++ {
-			val := logits[i*numLabels+j]
-			if val > maxLogit {
-				maxLogit = val
-				maxIdx = j
-			}
-		}
-
-		label := p.Labels[maxIdx]
-		baseLabel := strings.TrimPrefix(strings.TrimPrefix(label, "B-"), "I-")
-		isBegin := strings.HasPrefix(label, "B-")
-		isInside := strings.HasPrefix(label, "I-")
-
-		if label == "O" || label == "" {
-			if len(currentIds) > 0 {
-				entities = append(entities, Entity{
-					Type:       EntityType(currentType),
-					Text:       p.Tokenizer.Decode(currentIds),
-					Confidence: 1.0,
-				})
-				currentIds = nil
-				currentType = ""
-			}
-			continue
-		}
-
-		// Logic for merging tokens into entities
-		if isBegin || (isInside && baseLabel != currentType) || (currentType != "" && baseLabel != currentType) {
-			// Start of a new entity
-			if len(currentIds) > 0 {
-				entities = append(entities, Entity{
-					Type:       EntityType(currentType),
-					Text:       p.Tokenizer.Decode(currentIds),
-					Confidence: 1.0,
-				})
-			}
-			currentIds = []int{inputIds[i]}
-			currentType = baseLabel
-		} else {
-			// Continue current entity
-			currentIds = append(currentIds, inputIds[i])
-			if currentType == "" {
-				currentType = baseLabel
-			}
-		}
-	}
-
-	// Final flush
-	if len(currentIds) > 0 {
-		entities = append(entities, Entity{
-			Type:       EntityType(currentType),
-			Text:       p.Tokenizer.Decode(currentIds),
-			Confidence: 1.0,
-		})
-	}
-
-	return entities, nil
 }
 
 // Close releases the ONNX session resources

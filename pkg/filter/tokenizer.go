@@ -12,7 +12,7 @@ import (
 
 // Tokenizer is the interface for all model tokenizers
 type Tokenizer interface {
-	Tokenize(text string) ([]int, []int)
+	Tokenize(text string) (ids, mask, starts, ends []int)
 	Decode(ids []int) string
 	Vocab() map[string]int
 }
@@ -54,39 +54,62 @@ func NewWordPieceTokenizer(vocabPath string, maxLen int) (*WordPieceTokenizer, e
 	}, nil
 }
 
-// Tokenize converts a string into a slice of input IDs
-func (t *WordPieceTokenizer) Tokenize(text string) ([]int, []int) {
-	words := strings.Fields(strings.ToLower(text))
-	inputIds := []int{t.vocab["[CLS]"]}
+// Tokenize converts a string into a slice of input IDs with offsets
+func (t *WordPieceTokenizer) Tokenize(text string) (ids, mask, starts, ends []int) {
+	// A more complex tokenizer would be needed for perfect offsets.
+	// For this prototype, we'll estimate them based on space-splitting.
 	
+	ids = []int{t.vocab["[CLS]"]}
+	mask = []int{1}
+	starts = []int{0}
+	ends = []int{0}
+
+	currentPos := 0
+	words := strings.Fields(text)
 	for _, word := range words {
-		subwords := t.wordPiece(word)
+		// Find word in original text to get its start offset
+		offset := strings.Index(text[currentPos:], word)
+		if offset == -1 {
+			continue
+		}
+		wordStart := currentPos + offset
+		wordEnd := wordStart + len(word)
+		currentPos = wordEnd
+
+		subwords := t.wordPiece(strings.ToLower(word))
 		for _, sw := range subwords {
-			if id, ok := t.vocab[sw]; ok {
-				inputIds = append(inputIds, id)
-			} else {
-				inputIds = append(inputIds, t.vocab["[UNK]"])
+			id := t.vocab["[UNK]"]
+			if val, ok := t.vocab[sw]; ok {
+				id = val
 			}
+			ids = append(ids, id)
+			mask = append(mask, 1)
+			starts = append(starts, wordStart)
+			ends = append(ends, wordEnd)
 		}
 	}
 
-	inputIds = append(inputIds, t.vocab["[SEP]"])
+	ids = append(ids, t.vocab["[SEP]"])
+	mask = append(mask, 1)
+	starts = append(starts, currentPos)
+	ends = append(ends, currentPos)
 
-	if len(inputIds) > t.maxLen {
-		inputIds = inputIds[:t.maxLen]
-	}
-	
-	attentionMask := make([]int, len(inputIds))
-	for i := range attentionMask {
-		attentionMask[i] = 1
-	}
-
-	for len(inputIds) < t.maxLen {
-		inputIds = append(inputIds, t.vocab["[PAD]"])
-		attentionMask = append(attentionMask, 0)
+	// Padding/Truncation
+	if len(ids) > t.maxLen {
+		ids = ids[:t.maxLen]
+		mask = mask[:t.maxLen]
+		starts = starts[:t.maxLen]
+		ends = ends[:t.maxLen]
 	}
 
-	return inputIds, attentionMask
+	for len(ids) < t.maxLen {
+		ids = append(ids, t.vocab["[PAD]"])
+		mask = append(mask, 0)
+		starts = append(starts, 0)
+		ends = append(ends, 0)
+	}
+
+	return ids, mask, starts, ends
 }
 
 func (t *WordPieceTokenizer) Decode(ids []int) string {
@@ -159,33 +182,45 @@ func NewBPETokenizer(path string, maxLen int) (*BPETokenizer, error) {
 }
 
 func (t *BPETokenizer) Decode(ids []int) string {
-	// Decode returns string
-	res := t.tk.Decode(ids, true)
-	return res
+	return t.tk.Decode(ids, true)
 }
 
 func (t *BPETokenizer) Vocab() map[string]int {
 	return nil
 }
 
-func (t *BPETokenizer) Tokenize(text string) ([]int, []int) {
+func (t *BPETokenizer) Tokenize(text string) (ids, mask, starts, ends []int) {
 	en, err := t.tk.EncodeSingle(text)
 	if err != nil {
-		return make([]int, t.maxLen), make([]int, t.maxLen)
+		ids = make([]int, t.maxLen)
+		mask = make([]int, t.maxLen)
+		starts = make([]int, t.maxLen)
+		ends = make([]int, t.maxLen)
+		return
 	}
 
-	ids := en.Ids
-	mask := en.AttentionMask
+	ids = en.Ids
+	mask = en.AttentionMask
+	
+	// Convert [][2]int to two []int
+	for _, offset := range en.Offsets {
+		starts = append(starts, offset[0])
+		ends = append(ends, offset[1])
+	}
 
 	if len(ids) > t.maxLen {
 		ids = ids[:t.maxLen]
 		mask = mask[:t.maxLen]
+		starts = starts[:t.maxLen]
+		ends = ends[:t.maxLen]
 	}
 
 	for len(ids) < t.maxLen {
 		ids = append(ids, 0)
 		mask = append(mask, 0)
+		starts = append(starts, 0)
+		ends = append(ends, 0)
 	}
 
-	return ids, mask
+	return ids, mask, starts, ends
 }

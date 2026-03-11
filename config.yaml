@@ -43,11 +43,13 @@ onnx_models:
         # or provide a direct download URL if available.
         config_download_url: https://huggingface.co/MediaCatch/mmBERT-base-scandi-ner/resolve/main/config.json
 
-# Custom regex rules for PII detection.
+# Custom regex and NER rules for PII detection.
+# Rules can be based on a regex "pattern" or an NER "entity_type".
 # Actions:
-#   - REDACT: Replaces matches with [REDACTED: RuleName] (default).
+#   - REDACT: Replaces matches with [REDACTED: RuleName/EntityType] (default).
 #   - PSEUDONYMIZE: Replaces matches with a consistent hash, e.g., [RuleName_a1b2c3d4].
 rules:
+    # Regex Rules (Fast Path)
     - name: OPENAI_KEY
       pattern: sk-[a-zA-Z0-9]{48}
       action: REDACT
@@ -56,4 +58,15 @@ rules:
       action: REDACT
     - name: EMAIL
       pattern: \b[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}\b
+      action: REDACT
+
+    # NER Rules (Deep Path - requires ONNX or Prose)
+    - name: PERSON_DETECTION
+      entity_type: PERSON
+      action: PSEUDONYMIZE
+    - name: ORG_DETECTION
+      entity_type: ORGANIZATION
+      action: REDACT
+    - name: LOC_DETECTION
+      entity_type: LOCATION
       action: REDACT
