@@ -53,7 +53,7 @@ func (p *ONNXProvider) Name() string {
 }
 
 func (p *ONNXProvider) ExtractEntities(text string) ([]Entity, error) {
-	if text == "" {
+	if text == "" || p.Tokenizer == nil {
 		return nil, nil
 	}
 

@@ -57,11 +57,17 @@ func NewEngine(rules []Rule, ner NERProvider) (*Engine, error) {
 
 // Redact applies all rules (redaction or pseudonymization) to the input string
 func (e *Engine) Redact(input string) string {
+	if e == nil {
+		return input
+	}
 	return string(e.RedactBytes([]byte(input)))
 }
 
 // RedactBytes applies all rules and NER detection to the input byte slice
 func (e *Engine) RedactBytes(input []byte) []byte {
+	if e == nil {
+		return input
+	}
 	e.mu.Lock()
 	defer e.mu.Unlock()
 

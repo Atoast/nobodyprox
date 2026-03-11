@@ -27,9 +27,11 @@ func main() {
 			log.Fatalf("Failed to initialize Prose provider: %v", err)
 		}
 	case "onnx":
-		ner, err = filter.NewONNXProvider(cfg.ModelPath, cfg.VocabPath)
+		onnxProvider, err := filter.NewONNXProvider(cfg.ModelPath, cfg.VocabPath)
 		if err != nil {
 			log.Printf("Warning: Failed to initialize ONNX provider: %v", err)
+		} else {
+			ner = onnxProvider
 		}
 	default:
 		log.Printf("No NER provider configured or unknown provider: %s", cfg.NERProvider)
