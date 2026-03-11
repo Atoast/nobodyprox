@@ -4,19 +4,31 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
+	"strings"
 
 	ort "github.com/yalue/onnxruntime_go"
 )
 
 // ONNXProvider implements the NERProvider interface using ONNX Runtime
 type ONNXProvider struct {
-	Session    *ort.AdvancedSession
-	ModelPath  string
-	Tokenizer  *Tokenizer
+	Session   *ort.AdvancedSession
+	ModelPath string
+	Tokenizer Tokenizer
+	Labels    map[int]string
+	
+	// Configured input names
+	inputNames []string
+	
+	// Pre-allocated tensors for efficiency
+	inputIdsTensor      *ort.Tensor[int64]
+	attentionMaskTensor *ort.Tensor[int64]
+	tokenTypeIdsTensor  *ort.Tensor[int64]
+	outputTensor        *ort.Tensor[float32]
 }
 
 // NewONNXProvider creates a new instance of the ONNXProvider
-func NewONNXProvider(modelPath, vocabPath, onnxURL, modelURL, vocabURL string) (*ONNXProvider, error) {
+func NewONNXProvider(modelPath, vocabPath, onnxURL, modelURL, vocabURL string, labels map[int]string) (*ONNXProvider, error) {
 	// 1. Bootstrap missing resources
 	if err := BootstrapONNX(modelPath, vocabPath, onnxURL, modelURL, vocabURL); err != nil {
 		return nil, fmt.Errorf("failed to bootstrap ONNX resources: %v", err)
@@ -25,31 +37,127 @@ func NewONNXProvider(modelPath, vocabPath, onnxURL, modelURL, vocabURL string) (
 	// 2. Initialize the ONNX Runtime library
 	if !ort.IsInitialized() {
 		libPath := "onnxruntime.dll"
-		if _, err := os.Stat(libPath); os.IsNotExist(err) {
-			return nil, fmt.Errorf("onnxruntime.dll not found in the project root")
+		absPath, err := filepath.Abs(libPath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get absolute path for %s: %v", libPath, err)
 		}
-		ort.SetSharedLibraryPath(libPath)
-		err := ort.InitializeEnvironment()
+		if _, err := os.Stat(absPath); os.IsNotExist(err) {
+			return nil, fmt.Errorf("onnxruntime.dll not found at %s", absPath)
+		}
+		ort.SetSharedLibraryPath(absPath)
+		err = ort.InitializeEnvironment()
 		if err != nil {
 			return nil, fmt.Errorf("failed to initialize ONNX runtime: %v", err)
 		}
 	}
 
-	// 2. Load the Tokenizer
-	tokenizer, err := NewTokenizer(vocabPath, 128)
+	// 3. Load the Tokenizer
+	var tokenizer Tokenizer
+	var err error
+	if strings.HasSuffix(vocabPath, ".json") {
+		tokenizer, err = NewBPETokenizer(vocabPath, 128)
+	} else {
+		tokenizer, err = NewWordPieceTokenizer(vocabPath, 128)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to load tokenizer: %v", err)
 	}
 
-	// 3. Create the session
-	log.Printf("Loading ONNX model from %s...", modelPath)
+	// 4. Discover model inputs/outputs
+	inputs, _, err := ort.GetInputOutputInfo(modelPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get model info: %v", err)
+	}
+
+	inputNames := make([]string, len(inputs))
+	for i, in := range inputs {
+		inputNames[i] = in.Name
+	}
+
+	// 5. Pre-allocate tensors
+	maxLen := int64(128)
+	inputShape := ort.NewShape(1, maxLen)
 	
-	// Note: Creating the session actually requires defining the tensors.
-	// For this phase, we have the structure ready.
+	inputIdsTensor, err := ort.NewEmptyTensor[int64](inputShape)
+	if err != nil {
+		return nil, err
+	}
+	attentionMaskTensor, err := ort.NewEmptyTensor[int64](inputShape)
+	if err != nil {
+		inputIdsTensor.Destroy()
+		return nil, err
+	}
+
+	var tokenTypeIdsTensor *ort.Tensor[int64]
+	var inputValues []ort.Value
+	inputValues = append(inputValues, inputIdsTensor, attentionMaskTensor)
+
+	// Only allocate token_type_ids if the model expects it
+	hasTokenTypeIds := false
+	for _, name := range inputNames {
+		if name == "token_type_ids" {
+			hasTokenTypeIds = true
+			break
+		}
+	}
+
+	if hasTokenTypeIds {
+		tokenTypeIdsTensor, err = ort.NewEmptyTensor[int64](inputShape)
+		if err != nil {
+			inputIdsTensor.Destroy()
+			attentionMaskTensor.Destroy()
+			return nil, err
+		}
+		inputValues = append(inputValues, tokenTypeIdsTensor)
+	}
+
+	// Calculate numLabels from mapping
+	maxLabelIdx := 0
+	for idx := range labels {
+		if idx > maxLabelIdx {
+			maxLabelIdx = idx
+		}
+	}
+	numLabels := maxLabelIdx + 1
+	outputShape := ort.NewShape(1, maxLen, int64(numLabels))
+	outputTensor, err := ort.NewEmptyTensor[float32](outputShape)
+	if err != nil {
+		inputIdsTensor.Destroy()
+		attentionMaskTensor.Destroy()
+		if tokenTypeIdsTensor != nil {
+			tokenTypeIdsTensor.Destroy()
+		}
+		return nil, err
+	}
+
+	// 6. Create the advanced session
+	log.Printf("Loading ONNX model from %s...", modelPath)
+	session, err := ort.NewAdvancedSession(modelPath,
+		inputNames,
+		[]string{"logits"},
+		inputValues,
+		[]ort.Value{outputTensor},
+		nil)
+	if err != nil {
+		inputIdsTensor.Destroy()
+		attentionMaskTensor.Destroy()
+		if tokenTypeIdsTensor != nil {
+			tokenTypeIdsTensor.Destroy()
+		}
+		outputTensor.Destroy()
+		return nil, fmt.Errorf("failed to create ONNX session: %v", err)
+	}
 	
 	return &ONNXProvider{
-		ModelPath: modelPath,
-		Tokenizer: tokenizer,
+		Session:             session,
+		ModelPath:           modelPath,
+		Tokenizer:           tokenizer,
+		Labels:              labels,
+		inputNames:          inputNames,
+		inputIdsTensor:      inputIdsTensor,
+		attentionMaskTensor: attentionMaskTensor,
+		tokenTypeIdsTensor:  tokenTypeIdsTensor,
+		outputTensor:        outputTensor,
 	}, nil
 }
 
@@ -58,24 +166,141 @@ func (p *ONNXProvider) Name() string {
 }
 
 func (p *ONNXProvider) ExtractEntities(text string) ([]Entity, error) {
-	if text == "" || p.Tokenizer == nil {
+	if text == "" || p.Tokenizer == nil || p.Session == nil {
 		return nil, nil
 	}
 
 	// 1. Tokenize
-	inputIds, _ := p.Tokenizer.Tokenize(text)
+	inputIds, attentionMask := p.Tokenizer.Tokenize(text)
 	
-	// 2. Prepare tensors
-	// In Phase 2.2, we'll implement the Session.Run() with these tensors.
-	// For now, let's keep the logging to verify tokenization works.
-	log.Printf("[ONNX] Tokenized input (length %d)", len(inputIds))
+	// 2. Fill tensors
+	idsData := p.inputIdsTensor.GetData()
+	maskData := p.attentionMaskTensor.GetData()
+	
+	// Reset data if it was used before (AdvancedSession reuse)
+	for i := range idsData {
+		idsData[i] = 0
+		maskData[i] = 0
+	}
 
-	return nil, nil
+	for i := range inputIds {
+		idsData[i] = int64(inputIds[i])
+		maskData[i] = int64(attentionMask[i])
+	}
+
+	if p.tokenTypeIdsTensor != nil {
+		typeData := p.tokenTypeIdsTensor.GetData()
+		for i := range typeData {
+			typeData[i] = 0
+		}
+	}
+
+	// 3. Run inference
+	err := p.Session.Run()
+	if err != nil {
+		return nil, err
+	}
+
+	logits := p.outputTensor.GetData()
+	numLabels := len(p.Labels)
+	// Some models might have more labels in the output than we mapped
+	if len(p.Labels) > 0 {
+		maxMapped := 0
+		for k := range p.Labels {
+			if k > maxMapped {
+				maxMapped = k
+			}
+		}
+		if maxMapped + 1 > numLabels {
+			numLabels = maxMapped + 1
+		}
+	}
+	
+	seqLen := len(inputIds)
+
+	// 4. Post-process logits
+	var entities []Entity
+	var currentIds []int
+	var currentType string
+
+	for i := 0; i < seqLen; i++ {
+		// Find Argmax
+		maxLogit := float32(-1e10)
+		maxIdx := 0
+		for j := 0; j < numLabels; j++ {
+			val := logits[i*numLabels+j]
+			if val > maxLogit {
+				maxLogit = val
+				maxIdx = j
+			}
+		}
+
+		label := p.Labels[maxIdx]
+		baseLabel := strings.TrimPrefix(strings.TrimPrefix(label, "B-"), "I-")
+		isBegin := strings.HasPrefix(label, "B-")
+		isInside := strings.HasPrefix(label, "I-")
+
+		if label == "O" || label == "" {
+			if len(currentIds) > 0 {
+				entities = append(entities, Entity{
+					Type:       EntityType(currentType),
+					Text:       p.Tokenizer.Decode(currentIds),
+					Confidence: 1.0,
+				})
+				currentIds = nil
+				currentType = ""
+			}
+			continue
+		}
+
+		// Logic for merging tokens into entities
+		if isBegin || (isInside && baseLabel != currentType) || (currentType != "" && baseLabel != currentType) {
+			// Start of a new entity
+			if len(currentIds) > 0 {
+				entities = append(entities, Entity{
+					Type:       EntityType(currentType),
+					Text:       p.Tokenizer.Decode(currentIds),
+					Confidence: 1.0,
+				})
+			}
+			currentIds = []int{inputIds[i]}
+			currentType = baseLabel
+		} else {
+			// Continue current entity
+			currentIds = append(currentIds, inputIds[i])
+			if currentType == "" {
+				currentType = baseLabel
+			}
+		}
+	}
+
+	// Final flush
+	if len(currentIds) > 0 {
+		entities = append(entities, Entity{
+			Type:       EntityType(currentType),
+			Text:       p.Tokenizer.Decode(currentIds),
+			Confidence: 1.0,
+		})
+	}
+
+	return entities, nil
 }
 
 // Close releases the ONNX session resources
 func (p *ONNXProvider) Close() {
 	if p.Session != nil {
 		p.Session.Destroy()
+	}
+	if p.inputIdsTensor != nil {
+		p.inputIdsTensor.Destroy()
+	}
+	if p.attentionMaskTensor != nil {
+		p.attentionMaskTensor.Destroy()
+	}
+	if p.tokenTypeIdsTensor != nil {
+		p.tokenTypeIdsTensor.Destroy()
+	}
+	if p.outputTensor != nil {
+		p.outputTensor.Destroy()
 	}
 }

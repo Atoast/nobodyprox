@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // BootstrapONNX checks for and downloads missing ONNX resources
@@ -39,14 +40,19 @@ func BootstrapONNX(modelPath, vocabPath, onnxURL, modelURL, vocabURL string) err
 		log.Println("[Bootstrap] Model downloaded successfully.")
 	}
 
-	// 4. Check/Download Vocab
+	// 4. Check/Download Vocab/Tokenizer
 	if _, err := os.Stat(vocabPath); os.IsNotExist(err) {
-		log.Printf("[Bootstrap] Vocab missing at %s. Starting download...", vocabPath)
-		if err := downloadFile(vocabURL, vocabPath); err != nil {
-			return fmt.Errorf("failed to bootstrap vocab: %v", err)
+		label := "Vocab"
+		if strings.HasSuffix(vocabPath, ".json") {
+			label = "Tokenizer"
 		}
-		log.Println("[Bootstrap] Vocab downloaded successfully.")
+		log.Printf("[Bootstrap] %s missing at %s. Starting download...", label, vocabPath)
+		if err := downloadFile(vocabURL, vocabPath); err != nil {
+			return fmt.Errorf("failed to bootstrap %s: %v", label, err)
+		}
+		log.Printf("[Bootstrap] %s downloaded successfully.", label)
 	}
+
 
 	return nil
 }
@@ -85,11 +91,10 @@ func downloadAndExtractDLL(url, dest string) error {
 	}
 	defer r.Close()
 
-	// The DLL is located inside: onnxruntime-win-x64-1.17.1/lib/onnxruntime.dll
-	targetInZip := "onnxruntime-win-x64-1.17.1/lib/onnxruntime.dll"
+	// Find any file named onnxruntime.dll in the zip
 	var found bool
 	for _, f := range r.File {
-		if f.Name == targetInZip {
+		if strings.HasSuffix(f.Name, "/onnxruntime.dll") || f.Name == "onnxruntime.dll" {
 			found = true
 			rc, err := f.Open()
 			if err != nil {

@@ -8,10 +8,11 @@ import (
 )
 
 type ONNXModelConfig struct {
-	ModelPath        string `yaml:"model_path"`
-	VocabPath        string `yaml:"vocab_path"`
-	ModelDownloadURL string `yaml:"model_download_url"`
-	VocabDownloadURL string `yaml:"vocab_download_url"`
+	ModelPath        string         `yaml:"model_path"`
+	VocabPath        string         `yaml:"vocab_path"`
+	ModelDownloadURL string         `yaml:"model_download_url"`
+	VocabDownloadURL string         `yaml:"vocab_download_url"`
+	Labels           map[int]string `yaml:"labels"`
 }
 
 type Config struct {
@@ -43,7 +44,7 @@ func LoadConfig(path string) (*Config, error) {
 	// Apply defaults for missing runtime URL
 
 	if cfg.ONNXRuntimeURL == "" {
-		cfg.ONNXRuntimeURL = "https://github.com/microsoft/onnxruntime/releases/download/v1.17.1/onnxruntime-win-x64-1.17.1.zip"
+		cfg.ONNXRuntimeURL = "https://github.com/microsoft/onnxruntime/releases/download/v1.24.1/onnxruntime-win-x64-1.24.1.zip"
 	}
 
 	return &cfg, nil

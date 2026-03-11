@@ -10,14 +10,14 @@ proxy_port: 8080
 ner_provider: onnx
 
 # The active ONNX model to use from the onnx_models map below.
-active_model: bert-multilingual-quantized
+active_model: mmbert-scand
 
 # When true, the proxy logs sensitive data found but does NOT redact it.
 # Can be overridden by the --watch command line flag.
 watch_mode: false
 
 # URL to download the ONNX Runtime DLL if missing (Windows x64).
-onnx_runtime_url: https://github.com/microsoft/onnxruntime/releases/download/v1.17.1/onnxruntime-win-x64-1.17.1.zip
+onnx_runtime_url: https://github.com/microsoft/onnxruntime/releases/download/v1.24.1/onnxruntime-win-x64-1.24.1.zip
 
 # Map of available ONNX models and their download locations.
 onnx_models:
@@ -26,11 +26,47 @@ onnx_models:
         vocab_path: models/vocab.txt
         model_download_url: https://huggingface.co/Xenova/bert-base-multilingual-cased-ner-hrl/resolve/main/onnx/model.onnx
         vocab_download_url: https://huggingface.co/Xenova/bert-base-multilingual-cased-ner-hrl/resolve/main/vocab.txt
+        labels:
+            0: O
+            1: B-PERSON
+            2: I-PERSON
+            3: B-ORGANIZATION
+            4: I-ORGANIZATION
+            5: B-LOCATION
+            6: I-LOCATION
+            7: B-MISC
+            8: I-MISC
     bert-multilingual-quantized:
         model_path: models/model_quantized.onnx
         vocab_path: models/vocab.txt
         model_download_url: https://huggingface.co/Xenova/bert-base-multilingual-cased-ner-hrl/resolve/main/onnx/model_quantized.onnx
         vocab_download_url: https://huggingface.co/Xenova/bert-base-multilingual-cased-ner-hrl/resolve/main/vocab.txt
+        labels:
+            0: O
+            1: B-PERSON
+            2: I-PERSON
+            3: B-ORGANIZATION
+            4: I-ORGANIZATION
+            5: B-LOCATION
+            6: I-LOCATION
+            7: B-MISC
+            8: I-MISC
+    mmbert-scandi:
+        # Note: This model requires manual conversion using scripts/convert_model.py
+        model_path: models/mmbert-scandi/model.onnx
+        vocab_path: models/mmbert-scandi/tokenizer.json
+        labels:
+            0: O
+            1: B-PERSON
+            2: I-PERSON
+            3: B-ORGANIZATION
+            4: I-ORGANIZATION
+            5: B-LOCATION
+            6: I-LOCATION
+            7: B-MISC
+            8: I-MISC
+            11: LOCATION # GPE
+            12: LOCATION # GPE
 
 # Custom regex rules for PII detection.
 # Actions:
