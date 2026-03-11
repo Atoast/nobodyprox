@@ -3,7 +3,10 @@ package main
 import (
 	"flag"
 	"fmt"
+	"io"
+	"log"
 	"math/rand"
+	"os"
 	"time"
 )
 
@@ -32,9 +35,20 @@ func generateOpenAIKey() string {
 
 func main() {
 	lang := flag.String("lang", "en", "Language for synthetic data (en or da)")
+	outPath := flag.String("out", "", "Output file path (optional, defaults to stdout)")
 	flag.Parse()
 
 	rand.Seed(time.Now().UnixNano())
+
+	var out io.Writer = os.Stdout
+	if *outPath != "" {
+		f, err := os.Create(*outPath)
+		if err != nil {
+			log.Fatalf("Failed to create output file: %v", err)
+		}
+		defer f.Close()
+		out = f
+	}
 
 	names := enNames
 	emails := enEmails
@@ -64,46 +78,46 @@ func main() {
 		endMsg = "--- Slut på testdata ---"
 	}
 
-	fmt.Println(title)
-	fmt.Println()
+	fmt.Fprintln(out, title)
+	fmt.Fprintln(out)
 
 	// 1. Support Emails
 	for i := 0; i < 3; i++ {
 		name := names[rand.Intn(len(names))]
 		email := emails[rand.Intn(len(emails))]
 		cpr := generateCPR()
-		fmt.Printf("%s%d\n", subjectPrefix, 1000+i)
-		fmt.Printf("%s%s <%s>\n", fromPrefix, name, email)
-		fmt.Printf(emailBody1, name)
-		fmt.Printf(emailBody2, email, cpr)
-		fmt.Println(emailBody3 + name)
-		fmt.Println("---")
+		fmt.Fprintf(out, "%s%d\n", subjectPrefix, 1000+i)
+		fmt.Fprintf(out, "%s%s <%s>\n", fromPrefix, name, email)
+		fmt.Fprintf(out, emailBody1, name)
+		fmt.Fprintf(out, emailBody2, email, cpr)
+		fmt.Fprintln(out, emailBody3+name)
+		fmt.Fprintln(out, "---")
 	}
 
 	// 2. JSON Logs
-	fmt.Println("\n// System Logs (JSON format)")
+	fmt.Fprintln(out, "\n// System Logs (JSON format)")
 	for i := 0; i < 5; i++ {
 		name := names[rand.Intn(len(names))]
 		cpr := generateCPR()
 		key := generateOpenAIKey()
-		fmt.Printf("{\"timestamp\": \"%s\", \"level\": \"INFO\", \"user\": \"%s\", \"cpr\": \"%s\", \"api_key\": \"%s\", \"msg\": \"%s\"}\n", 
+		fmt.Fprintf(out, "{\"timestamp\": \"%s\", \"level\": \"INFO\", \"user\": \"%s\", \"cpr\": \"%s\", \"api_key\": \"%s\", \"msg\": \"%s\"}\n", 
 			time.Now().Format(time.RFC3339), name, cpr, key, logMsg)
 	}
 
 	// 3. Code Snippets
-	fmt.Printf("\n%s\n", codeComment)
-	fmt.Println("const config = {")
-	fmt.Printf("  apiKey: '%s',\n", generateOpenAIKey())
-	fmt.Printf("  adminEmail: '%s',\n", emails[rand.Intn(len(emails))])
-	fmt.Println("  environment: 'production',")
-	fmt.Println("};")
-	fmt.Println()
+	fmt.Fprintf(out, "\n%s\n", codeComment)
+	fmt.Fprintln(out, "const config = {")
+	fmt.Fprintf(out, "  apiKey: '%s',\n", generateOpenAIKey())
+	fmt.Fprintf(out, "  adminEmail: '%s',\n", emails[rand.Intn(len(emails))])
+	fmt.Fprintln(out, "  environment: 'production',")
+	fmt.Fprintln(out, "};")
+	fmt.Fprintln(out)
 
-	fmt.Println("func ConnectToService() {")
-	fmt.Printf("  %s\n", secretComment)
-	fmt.Printf("  token := \"%s\"\n", generateOpenAIKey())
-	fmt.Println("  fmt.Println(\"Connecting...\")")
-	fmt.Println("}")
+	fmt.Fprintln(out, "func ConnectToService() {")
+	fmt.Fprintf(out, "  %s\n", secretComment)
+	fmt.Fprintf(out, "  token := \"%s\"\n", generateOpenAIKey())
+	fmt.Fprintln(out, "  fmt.Println(\"Connecting...\")")
+	fmt.Fprintln(out, "}")
 
-	fmt.Printf("\n%s\n", endMsg)
+	fmt.Fprintf(out, "\n%s\n", endMsg)
 }
