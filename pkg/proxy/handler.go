@@ -8,6 +8,8 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"time"
+	"unsafe"
 
 	"github.com/nobodyprox/nobodyprox/pkg/cert"
 	"github.com/nobodyprox/nobodyprox/pkg/filter"
@@ -19,15 +21,19 @@ type Proxy struct {
 }
 
 func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	reqID := fmt.Sprintf("%x", r.Context().Value(struct{}{}) ) // Just a placeholder, we'll use a better one
+	// Use a simple hash of time + pointer for a unique ID
+	reqID = fmt.Sprintf("%x", (uintptr)(unsafe.Pointer(r)) ^ (uintptr)(time.Now().UnixNano()))[:8]
+
 	if r.Method == http.MethodConnect {
-		p.handleConnect(w, r)
+		p.handleConnect(w, r, reqID)
 		return
 	}
 
-	p.handleHTTP(w, r)
+	p.handleHTTP(w, r, reqID)
 }
 
-func (p *Proxy) handleConnect(w http.ResponseWriter, r *http.Request) {
+func (p *Proxy) handleConnect(w http.ResponseWriter, r *http.Request, reqID string) {
 	host, _, err := net.SplitHostPort(r.Host)
 	if err != nil {
 		host = r.Host
@@ -83,22 +89,22 @@ func (p *Proxy) handleConnect(w http.ResponseWriter, r *http.Request) {
 	// We wrap the connections to redact data on the fly
 	errChan := make(chan error, 2)
 	go func() {
-		errChan <- p.pipeWithRedaction(remoteConn, tlsConn)
+		errChan <- p.pipeWithRedaction(remoteConn, tlsConn, reqID)
 	}()
 	go func() {
-		errChan <- p.pipeWithRedaction(tlsConn, remoteConn)
+		errChan <- p.pipeWithRedaction(tlsConn, remoteConn, reqID)
 	}()
 
 	<-errChan
 }
 
 // pipeWithRedaction copies data from src to dst while redacting sensitive information
-func (p *Proxy) pipeWithRedaction(dst io.Writer, src io.Reader) error {
+func (p *Proxy) pipeWithRedaction(dst io.Writer, src io.Reader, reqID string) error {
 	buf := make([]byte, 32*1024)
 	for {
 		nr, err := src.Read(buf)
 		if nr > 0 {
-			redacted := p.Filter.RedactBytes(buf[0:nr])
+			redacted := p.Filter.RedactBytes(buf[0:nr], "TUNNEL", reqID)
 			nw, err := dst.Write(redacted)
 			if err != nil {
 				return err
@@ -116,7 +122,7 @@ func (p *Proxy) pipeWithRedaction(dst io.Writer, src io.Reader) error {
 	}
 }
 
-func (p *Proxy) handleHTTP(w http.ResponseWriter, r *http.Request) {
+func (p *Proxy) handleHTTP(w http.ResponseWriter, r *http.Request, reqID string) {
 	// Clear RequestURI as it's not allowed in client requests
 	r.RequestURI = ""
 
@@ -139,14 +145,14 @@ func (p *Proxy) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	r.Body.Close()
 
-	redactedBody := p.Filter.RedactBytes(body)
+	redactedBody := p.Filter.RedactBytes(body, "REQ", reqID)
 	r.Body = io.NopCloser(strings.NewReader(string(redactedBody)))
 	r.ContentLength = int64(len(redactedBody))
 	r.Header.Del("Content-Length")
 
 	resp, err := http.DefaultTransport.RoundTrip(r)
 	if err != nil {
-		log.Printf("[Proxy] RoundTrip error for %s: %v", r.URL, err)
+		log.Printf("[%s][Proxy] RoundTrip error for %s: %v", reqID, r.URL, err)
 		http.Error(w, err.Error(), http.StatusServiceUnavailable)
 		return
 	}
@@ -155,10 +161,10 @@ func (p *Proxy) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	// Redact response body first so we know the final size
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		log.Printf("[Proxy] Error reading response body: %v", err)
+		log.Printf("[%s][Proxy] Error reading response body: %v", reqID, err)
 		return
 	}
-	redactedRespBody := p.Filter.RedactBytes(respBody)
+	redactedRespBody := p.Filter.RedactBytes(respBody, "RES", reqID)
 
 	// Copy response headers
 	for k, vv := range resp.Header {

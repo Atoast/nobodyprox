@@ -45,7 +45,7 @@ func TestSyntheticLargeData(t *testing.T) {
 		},
 	}
 
-	engine, err := filter.NewEngine(rules, nil)
+	engine, err := filter.NewEngine(rules, nil, false)
 	if err != nil {
 		t.Fatalf("Failed to create engine: %v", err)
 	}
@@ -68,7 +68,7 @@ func TestSyntheticLargeData(t *testing.T) {
 	}
 
 	input := sb.String()
-	output := engine.Redact(input)
+	output := engine.Redact(input, "TEST", "TEST-ID")
 
 	// Verify that none of the original sensitive items exist in the output
 	for _, item := range sensitiveItems {
@@ -105,7 +105,7 @@ func TestConcurrentRedaction(t *testing.T) {
 		},
 	}
 
-	engine, err := filter.NewEngine(rules, nil)
+	engine, err := filter.NewEngine(rules, nil, false)
 	if err != nil {
 		t.Fatalf("Failed to create engine: %v", err)
 	}
@@ -121,7 +121,8 @@ func TestConcurrentRedaction(t *testing.T) {
 				key := generateOpenAIKey()
 				input := fmt.Sprintf("Worker %d, Request %d: Email: %s, Secret: %s", workerID, j, email, key)
 				
-				output := engine.Redact(input)
+				reqID := fmt.Sprintf("W%d-R%d", workerID, j)
+				output := engine.Redact(input, "TEST", reqID)
 				
 				if strings.Contains(output, email) {
 					t.Errorf("Output still contains email: %s", email)

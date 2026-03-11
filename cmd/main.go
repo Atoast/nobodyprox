@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"log"
 	"net/http"
@@ -12,11 +13,22 @@ import (
 )
 
 func main() {
+	// Parse Command Line Flags
+	watchFlag := flag.Bool("watch", false, "Enable watch mode (logs sensitive data without redacting)")
+	flag.Parse()
+
 	// Load Configuration
 	cfg, err := config.LoadConfig("config.yaml")
 	if err != nil {
 		log.Fatalf("Failed to load config: %v", err)
 	}
+
+	// Override config with command line flag if set
+	if *watchFlag {
+		log.Printf("Command line --watch flag detected, enabling WatchMode")
+		cfg.WatchMode = true
+	}
+	log.Printf("Final cfg.WatchMode value: %v", cfg.WatchMode)
 
 	// Initialize NER Provider
 	var ner filter.NERProvider
@@ -27,18 +39,24 @@ func main() {
 			log.Fatalf("Failed to initialize Prose provider: %v", err)
 		}
 	case "onnx":
-		onnxProvider, err := filter.NewONNXProvider(cfg.ModelPath, cfg.VocabPath)
-		if err != nil {
-			log.Printf("Warning: Failed to initialize ONNX provider: %v", err)
+		onnxCfg, ok := cfg.ONNXModels[cfg.ActiveModel]
+		if !ok {
+			log.Printf("Warning: Active model %s not found in onnx_models", cfg.ActiveModel)
 		} else {
-			ner = onnxProvider
+			onnxProvider, err := filter.NewONNXProvider(onnxCfg.ModelPath, onnxCfg.VocabPath, cfg.ONNXRuntimeURL, onnxCfg.ModelDownloadURL, onnxCfg.VocabDownloadURL)
+			if err != nil {
+				log.Printf("Warning: Failed to initialize ONNX provider: %v", err)
+			} else {
+				ner = onnxProvider
+			}
 		}
 	default:
 		log.Printf("No NER provider configured or unknown provider: %s", cfg.NERProvider)
 	}
 
 	// Initialize Filter Engine
-	engine, err := filter.NewEngine(cfg.Rules, ner)
+	log.Printf("Initializing Engine with WatchMode: %v", cfg.WatchMode)
+	engine, err := filter.NewEngine(cfg.Rules, ner, cfg.WatchMode)
 	if err != nil {
 		log.Fatalf("Failed to initialize filter engine: %v", err)
 	}

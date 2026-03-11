@@ -16,14 +16,14 @@ func TestPseudonymization(t *testing.T) {
 		},
 	}
 
-	engine, err := filter.NewEngine(rules, nil)
+	engine, err := filter.NewEngine(rules, nil, false)
 	if err != nil {
 		t.Fatalf("Failed to create engine: %v", err)
 	}
 
 	input := "Alice went to see Bob. Alice said hello to Bob."
-	output1 := engine.Redact(input)
-	output2 := engine.Redact(input)
+	output1 := engine.Redact(input, "TEST", "ID1")
+	output2 := engine.Redact(input, "TEST", "ID2")
 
 	// Check for consistency
 	if output1 != output2 {

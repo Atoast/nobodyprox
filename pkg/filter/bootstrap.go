@@ -10,19 +10,13 @@ import (
 	"path/filepath"
 )
 
-const (
-	onnxDownloadURL  = "https://github.com/microsoft/onnxruntime/releases/download/v1.17.1/onnxruntime-win-x64-1.17.1.zip"
-	modelDownloadURL = "https://huggingface.co/Xenova/bert-base-multilingual-cased-ner-main/resolve/main/onnx/model.onnx"
-	vocabDownloadURL = "https://huggingface.co/Xenova/bert-base-multilingual-cased-ner-main/resolve/main/vocab.txt"
-)
-
 // BootstrapONNX checks for and downloads missing ONNX resources
-func BootstrapONNX(modelPath, vocabPath string) error {
+func BootstrapONNX(modelPath, vocabPath, onnxURL, modelURL, vocabURL string) error {
 	// 1. Check/Download onnxruntime.dll
 	dllPath := "onnxruntime.dll"
 	if _, err := os.Stat(dllPath); os.IsNotExist(err) {
 		log.Println("[Bootstrap] onnxruntime.dll missing. Starting download...")
-		if err := downloadAndExtractDLL(onnxDownloadURL, dllPath); err != nil {
+		if err := downloadAndExtractDLL(onnxURL, dllPath); err != nil {
 			return fmt.Errorf("failed to bootstrap onnxruntime.dll: %v", err)
 		}
 		log.Println("[Bootstrap] onnxruntime.dll installed successfully.")
@@ -39,7 +33,7 @@ func BootstrapONNX(modelPath, vocabPath string) error {
 	// 3. Check/Download Model
 	if _, err := os.Stat(modelPath); os.IsNotExist(err) {
 		log.Printf("[Bootstrap] Model missing at %s. Starting download...", modelPath)
-		if err := downloadFile(modelDownloadURL, modelPath); err != nil {
+		if err := downloadFile(modelURL, modelPath); err != nil {
 			return fmt.Errorf("failed to bootstrap model: %v", err)
 		}
 		log.Println("[Bootstrap] Model downloaded successfully.")
@@ -48,7 +42,7 @@ func BootstrapONNX(modelPath, vocabPath string) error {
 	// 4. Check/Download Vocab
 	if _, err := os.Stat(vocabPath); os.IsNotExist(err) {
 		log.Printf("[Bootstrap] Vocab missing at %s. Starting download...", vocabPath)
-		if err := downloadFile(vocabDownloadURL, vocabPath); err != nil {
+		if err := downloadFile(vocabURL, vocabPath); err != nil {
 			return fmt.Errorf("failed to bootstrap vocab: %v", err)
 		}
 		log.Println("[Bootstrap] Vocab downloaded successfully.")

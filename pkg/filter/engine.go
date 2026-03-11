@@ -27,14 +27,15 @@ type Rule struct {
 
 // Engine manages the redaction and pseudonymization process
 type Engine struct {
-	Rules    []Rule
-	NER      NERProvider
-	mappings map[string]string // Original -> Synthetic
-	mu       sync.RWMutex
+	Rules     []Rule
+	NER       NERProvider
+	WatchMode bool
+	mappings  map[string]string // Original -> Synthetic
+	mu        sync.RWMutex
 }
 
 // NewEngine creates a new filter engine
-func NewEngine(rules []Rule, ner NERProvider) (*Engine, error) {
+func NewEngine(rules []Rule, ner NERProvider, watchMode bool) (*Engine, error) {
 	for i := range rules {
 		re, err := regexp.Compile(rules[i].Pattern)
 		if err != nil {
@@ -49,38 +50,44 @@ func NewEngine(rules []Rule, ner NERProvider) (*Engine, error) {
 		}
 	}
 	return &Engine{
-		Rules:    rules,
-		NER:      ner,
-		mappings: make(map[string]string),
+		Rules:     rules,
+		NER:       ner,
+		WatchMode: watchMode,
+		mappings:  make(map[string]string),
 	}, nil
 }
 
 // Redact applies all rules (redaction or pseudonymization) to the input string
-func (e *Engine) Redact(input string) string {
+func (e *Engine) Redact(input, context, reqID string) string {
 	if e == nil {
 		return input
 	}
-	return string(e.RedactBytes([]byte(input)))
+	return string(e.RedactBytes([]byte(input), context, reqID))
 }
 
 // RedactBytes applies all rules and NER detection to the input byte slice
-func (e *Engine) RedactBytes(input []byte) []byte {
+func (e *Engine) RedactBytes(input []byte, context, reqID string) []byte {
 	if e == nil {
 		return input
 	}
-	e.mu.Lock()
-	defer e.mu.Unlock()
 
 	output := input
 
 	// 1. Apply NER (Deep Path) if enabled
 	if e.NER != nil {
-		entities, err := e.NER.ExtractEntities(string(output))
+		entities, err := e.NER.ExtractEntities(string(input))
 		if err == nil {
 			for _, ent := range entities {
-				log.Printf("[NER] Found %s: %s", ent.Type, ent.Text)
+				if e.WatchMode {
+					log.Printf("[%s][%s][WATCH] Found NER %s: %s", reqID, context, ent.Type, ent.Text)
+					continue
+				}
+
+				e.mu.Lock()
+				log.Printf("[%s][%s][NER] Found %s: %s", reqID, context, ent.Type, ent.Text)
 				if synth, ok := e.mappings[ent.Text]; ok {
 					output = []byte(regexp.MustCompile(`\b`+regexp.QuoteMeta(ent.Text)+`\b`).ReplaceAllString(string(output), synth))
+					e.mu.Unlock()
 					continue
 				}
 
@@ -88,17 +95,32 @@ func (e *Engine) RedactBytes(input []byte) []byte {
 				synth := e.generateSynthetic(ent.Text, string(ent.Type))
 				e.mappings[ent.Text] = synth
 				output = []byte(regexp.MustCompile(`\b`+regexp.QuoteMeta(ent.Text)+`\b`).ReplaceAllString(string(output), synth))
+				e.mu.Unlock()
 			}
 		}
 	}
 
 	// 2. Apply Regex rules (Fast Path)
 	for _, rule := range e.Rules {
+		matches := rule.Regex.FindAll(input, -1)
+		if len(matches) > 0 {
+			log.Printf("[%s][%s] Rule %s found %d matches", reqID, context, rule.Name, len(matches))
+		}
+
+		if e.WatchMode {
+			for _, match := range matches {
+				log.Printf("[%s][%s][WATCH] Found Rule %s: %s", reqID, context, rule.Name, string(match))
+			}
+			continue
+		}
+
 		if rule.Action == ActionRedact {
 			output = rule.Regex.ReplaceAll(output, []byte(rule.Replacement))
 		} else if rule.Action == ActionPseudonymize {
 			output = rule.Regex.ReplaceAllFunc(output, func(match []byte) []byte {
 				val := string(match)
+				e.mu.Lock()
+				defer e.mu.Unlock()
 				if synth, ok := e.mappings[val]; ok {
 					return []byte(synth)
 				}

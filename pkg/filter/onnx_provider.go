@@ -16,9 +16,9 @@ type ONNXProvider struct {
 }
 
 // NewONNXProvider creates a new instance of the ONNXProvider
-func NewONNXProvider(modelPath, vocabPath string) (*ONNXProvider, error) {
+func NewONNXProvider(modelPath, vocabPath, onnxURL, modelURL, vocabURL string) (*ONNXProvider, error) {
 	// 1. Bootstrap missing resources
-	if err := BootstrapONNX(modelPath, vocabPath); err != nil {
+	if err := BootstrapONNX(modelPath, vocabPath, onnxURL, modelURL, vocabURL); err != nil {
 		return nil, fmt.Errorf("failed to bootstrap ONNX resources: %v", err)
 	}
 
