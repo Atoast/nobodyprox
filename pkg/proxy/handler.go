@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"crypto/tls"
+	"fmt"
 	"io"
 	"log"
 	"net"
@@ -116,8 +117,21 @@ func (p *Proxy) pipeWithRedaction(dst io.Writer, src io.Reader) error {
 }
 
 func (p *Proxy) handleHTTP(w http.ResponseWriter, r *http.Request) {
-	// Simple HTTP proxying with redirection (non-TLS)
-	// Read the body, redact it, and forward it
+	// Clear RequestURI as it's not allowed in client requests
+	r.RequestURI = ""
+
+	// Ensure the URL has a scheme and host (for RoundTrip)
+	if r.URL.Scheme == "" {
+		r.URL.Scheme = "http"
+	}
+	if r.URL.Host == "" {
+		r.URL.Host = r.Host
+	}
+
+	// Disable compression so we can redact the response body easily
+	r.Header.Set("Accept-Encoding", "identity")
+
+	// Read and redact request body
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -128,25 +142,55 @@ func (p *Proxy) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	redactedBody := p.Filter.RedactBytes(body)
 	r.Body = io.NopCloser(strings.NewReader(string(redactedBody)))
 	r.ContentLength = int64(len(redactedBody))
+	r.Header.Del("Content-Length")
 
 	resp, err := http.DefaultTransport.RoundTrip(r)
 	if err != nil {
+		log.Printf("[Proxy] RoundTrip error for %s: %v", r.URL, err)
 		http.Error(w, err.Error(), http.StatusServiceUnavailable)
 		return
 	}
 	defer resp.Body.Close()
 
+	// Redact response body first so we know the final size
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		log.Printf("[Proxy] Error reading response body: %v", err)
+		return
+	}
+	redactedRespBody := p.Filter.RedactBytes(respBody)
+
+	// Copy response headers
 	for k, vv := range resp.Header {
+		if isHopByHop(k) || strings.EqualFold(k, "Content-Length") {
+			continue
+		}
 		for _, v := range vv {
 			w.Header().Add(k, v)
 		}
 	}
-	w.WriteHeader(resp.StatusCode)
 
-	// Redact response as well
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return
+	// Set the correct content length for the redacted body
+	w.Header().Set("Content-Length", fmt.Sprintf("%d", len(redactedRespBody)))
+	w.WriteHeader(resp.StatusCode)
+	w.Write(redactedRespBody)
+}
+
+func isHopByHop(header string) bool {
+	hopByHop := []string{
+		"Connection",
+		"Keep-Alive",
+		"Proxy-Authenticate",
+		"Proxy-Authorization",
+		"Te",
+		"Trailers",
+		"Transfer-Encoding",
+		"Upgrade",
 	}
-	w.Write(p.Filter.RedactBytes(respBody))
+	for _, h := range hopByHop {
+		if strings.EqualFold(header, h) {
+			return true
+		}
+	}
+	return false
 }

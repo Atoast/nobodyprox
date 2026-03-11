@@ -3,6 +3,7 @@ package filter
 import (
 	"crypto/sha256"
 	"fmt"
+	"log"
 	"regexp"
 	"sync"
 )
@@ -70,9 +71,8 @@ func (e *Engine) RedactBytes(input []byte) []byte {
 	if e.NER != nil {
 		entities, err := e.NER.ExtractEntities(string(output))
 		if err == nil {
-			// Process entities from longest to shortest to avoid offset issues
-			// Actually, let's use a simple approach for now.
 			for _, ent := range entities {
+				log.Printf("[NER] Found %s: %s", ent.Type, ent.Text)
 				if synth, ok := e.mappings[ent.Text]; ok {
 					output = []byte(regexp.MustCompile(`\b`+regexp.QuoteMeta(ent.Text)+`\b`).ReplaceAllString(string(output), synth))
 					continue

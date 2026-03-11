@@ -22,7 +22,7 @@ func TestRedactionEngine(t *testing.T) {
 		},
 	}
 
-	engine, err := filter.NewEngine(rules)
+	engine, err := filter.NewEngine(rules, nil)
 	if err != nil {
 		t.Fatalf("Failed to create engine: %v", err)
 	}

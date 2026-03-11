@@ -4,6 +4,7 @@ go 1.24.3
 
 require (
 	github.com/jdkato/prose/v2 v2.0.0
+	github.com/yalue/onnxruntime_go v1.27.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 

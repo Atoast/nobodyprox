@@ -1,0 +1,17 @@
+proxy_port: 8080
+ner_provider: prose
+#model_path: models/model.onnx
+#vocab_path: models/vocab.txt
+rules:
+    - name: OPENAI_KEY
+      pattern: sk-[a-zA-Z0-9]{48}
+      replacement: ""
+      action: ""
+    - name: DANISH_CPR
+      pattern: \b(0[1-9]|[12]\d|3[01])(0[1-9]|1[0-2])\d{2}-\d{4}\b
+      replacement: ""
+      action: ""
+    - name: EMAIL
+      pattern: \b[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}\b
+      replacement: ""
+      action: ""

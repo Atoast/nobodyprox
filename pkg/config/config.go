@@ -10,6 +10,8 @@ import (
 type Config struct {
 	ProxyPort   int           `yaml:"proxy_port"`
 	NERProvider string        `yaml:"ner_provider"`
+	ModelPath   string        `yaml:"model_path"`
+	VocabPath   string        `yaml:"vocab_path"`
 	Rules       []filter.Rule `yaml:"rules"`
 }
 
