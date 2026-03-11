@@ -8,11 +8,13 @@ import (
 )
 
 type ONNXModelConfig struct {
-	ModelPath        string         `yaml:"model_path"`
-	VocabPath        string         `yaml:"vocab_path"`
-	ModelDownloadURL string         `yaml:"model_download_url"`
-	VocabDownloadURL string         `yaml:"vocab_download_url"`
-	Labels           map[int]string `yaml:"labels"`
+	ModelPath         string         `yaml:"model_path"`
+	VocabPath         string         `yaml:"vocab_path"`
+	ConfigPath        string         `yaml:"config_path"`
+	ModelDownloadURL  string         `yaml:"model_download_url"`
+	VocabDownloadURL  string         `yaml:"vocab_download_url"`
+	ConfigDownloadURL string         `yaml:"config_download_url"`
+	Labels            map[int]string `yaml:"labels"`
 }
 
 type Config struct {

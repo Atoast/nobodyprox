@@ -43,7 +43,16 @@ func main() {
 		if !ok {
 			log.Printf("Warning: Active model %s not found in onnx_models", cfg.ActiveModel)
 		} else {
-			onnxProvider, err := filter.NewONNXProvider(onnxCfg.ModelPath, onnxCfg.VocabPath, cfg.ONNXRuntimeURL, onnxCfg.ModelDownloadURL, onnxCfg.VocabDownloadURL, onnxCfg.Labels)
+			onnxProvider, err := filter.NewONNXProvider(
+				onnxCfg.ModelPath,
+				onnxCfg.VocabPath,
+				onnxCfg.ConfigPath,
+				cfg.ONNXRuntimeURL,
+				onnxCfg.ModelDownloadURL,
+				onnxCfg.VocabDownloadURL,
+				onnxCfg.ConfigDownloadURL,
+				onnxCfg.Labels,
+			)
 			if err != nil {
 				log.Printf("Warning: Failed to initialize ONNX provider: %v", err)
 			} else {

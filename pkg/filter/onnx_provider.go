@@ -1,10 +1,12 @@
 package filter
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	ort "github.com/yalue/onnxruntime_go"
@@ -12,10 +14,11 @@ import (
 
 // ONNXProvider implements the NERProvider interface using ONNX Runtime
 type ONNXProvider struct {
-	Session   *ort.AdvancedSession
-	ModelPath string
-	Tokenizer Tokenizer
-	Labels    map[int]string
+	Session    *ort.AdvancedSession
+	ModelPath  string
+	ConfigPath string
+	Tokenizer  Tokenizer
+	Labels     map[int]string
 	
 	// Configured input names
 	inputNames []string
@@ -28,9 +31,9 @@ type ONNXProvider struct {
 }
 
 // NewONNXProvider creates a new instance of the ONNXProvider
-func NewONNXProvider(modelPath, vocabPath, onnxURL, modelURL, vocabURL string, labels map[int]string) (*ONNXProvider, error) {
+func NewONNXProvider(modelPath, vocabPath, configPath, onnxURL, modelURL, vocabURL, configURL string, labels map[int]string) (*ONNXProvider, error) {
 	// 1. Bootstrap missing resources
-	if err := BootstrapONNX(modelPath, vocabPath, onnxURL, modelURL, vocabURL); err != nil {
+	if err := BootstrapONNX(modelPath, vocabPath, configPath, onnxURL, modelURL, vocabURL, configURL); err != nil {
 		return nil, fmt.Errorf("failed to bootstrap ONNX resources: %v", err)
 	}
 
@@ -63,7 +66,16 @@ func NewONNXProvider(modelPath, vocabPath, onnxURL, modelURL, vocabURL string, l
 		return nil, fmt.Errorf("failed to load tokenizer: %v", err)
 	}
 
-	// 4. Discover model inputs/outputs
+	// 4. Load Labels (Auto-discovery if empty)
+	if len(labels) == 0 && configPath != "" {
+		log.Printf("Labels empty, attempting auto-discovery from %s", configPath)
+		labels, err = parseLabels(configPath)
+		if err != nil {
+			log.Printf("Warning: failed to parse labels from config: %v", err)
+		}
+	}
+
+	// 5. Discover model inputs/outputs
 	inputs, _, err := ort.GetInputOutputInfo(modelPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get model info: %v", err)
@@ -74,7 +86,7 @@ func NewONNXProvider(modelPath, vocabPath, onnxURL, modelURL, vocabURL string, l
 		inputNames[i] = in.Name
 	}
 
-	// 5. Pre-allocate tensors
+	// 6. Pre-allocate tensors
 	maxLen := int64(128)
 	inputShape := ort.NewShape(1, maxLen)
 	
@@ -130,7 +142,7 @@ func NewONNXProvider(modelPath, vocabPath, onnxURL, modelURL, vocabURL string, l
 		return nil, err
 	}
 
-	// 6. Create the advanced session
+	// 7. Create the advanced session
 	log.Printf("Loading ONNX model from %s...", modelPath)
 	session, err := ort.NewAdvancedSession(modelPath,
 		inputNames,
@@ -151,6 +163,7 @@ func NewONNXProvider(modelPath, vocabPath, onnxURL, modelURL, vocabURL string, l
 	return &ONNXProvider{
 		Session:             session,
 		ModelPath:           modelPath,
+		ConfigPath:          configPath,
 		Tokenizer:           tokenizer,
 		Labels:              labels,
 		inputNames:          inputNames,
@@ -159,6 +172,50 @@ func NewONNXProvider(modelPath, vocabPath, onnxURL, modelURL, vocabURL string, l
 		tokenTypeIdsTensor:  tokenTypeIdsTensor,
 		outputTensor:        outputTensor,
 	}, nil
+}
+
+func parseLabels(configPath string) (map[int]string, error) {
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		return nil, err
+	}
+
+	var config struct {
+		Id2Label map[string]string `json:"id2label"`
+	}
+	if err := json.Unmarshal(data, &config); err != nil {
+		return nil, err
+	}
+
+	labels := make(map[int]string)
+	for k, v := range config.Id2Label {
+		idx, err := strconv.Atoi(k)
+		if err != nil {
+			continue
+		}
+		
+		// Map standard HF/NER tags to our internal EntityType strings
+		upperVal := strings.ToUpper(v)
+		label := upperVal
+		
+		// Map common aliases
+		if strings.Contains(upperVal, "PER") {
+			label = strings.Replace(upperVal, "PER", "PERSON", 1)
+		} else if strings.Contains(upperVal, "ORG") {
+			label = strings.Replace(upperVal, "ORG", "ORGANIZATION", 1)
+		} else if strings.Contains(upperVal, "LOC") || strings.Contains(upperVal, "GPE") {
+			// Special handling for GPE (Geopolitical Entity)
+			if strings.Contains(upperVal, "GPE") {
+				label = strings.Replace(upperVal, "GPE", "LOCATION", 1)
+			} else {
+				label = strings.Replace(upperVal, "LOC", "LOCATION", 1)
+			}
+		}
+		
+		labels[idx] = label
+	}
+
+	return labels, nil
 }
 
 func (p *ONNXProvider) Name() string {

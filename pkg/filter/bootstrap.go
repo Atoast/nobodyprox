@@ -12,7 +12,7 @@ import (
 )
 
 // BootstrapONNX checks for and downloads missing ONNX resources
-func BootstrapONNX(modelPath, vocabPath, onnxURL, modelURL, vocabURL string) error {
+func BootstrapONNX(modelPath, vocabPath, configPath, onnxURL, modelURL, vocabURL, configURL string) error {
 	// 1. Check/Download onnxruntime.dll
 	dllPath := "onnxruntime.dll"
 	if _, err := os.Stat(dllPath); os.IsNotExist(err) {
@@ -53,6 +53,16 @@ func BootstrapONNX(modelPath, vocabPath, onnxURL, modelURL, vocabURL string) err
 		log.Printf("[Bootstrap] %s downloaded successfully.", label)
 	}
 
+	// 5. Check/Download Config (Optional)
+	if configPath != "" && configURL != "" {
+		if _, err := os.Stat(configPath); os.IsNotExist(err) {
+			log.Printf("[Bootstrap] Config missing at %s. Starting download...", configPath)
+			if err := downloadFile(configURL, configPath); err != nil {
+				return fmt.Errorf("failed to bootstrap config: %v", err)
+			}
+			log.Println("[Bootstrap] Config downloaded successfully.")
+		}
+	}
 
 	return nil
 }
