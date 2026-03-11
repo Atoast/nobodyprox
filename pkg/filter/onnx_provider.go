@@ -17,7 +17,12 @@ type ONNXProvider struct {
 
 // NewONNXProvider creates a new instance of the ONNXProvider
 func NewONNXProvider(modelPath, vocabPath string) (*ONNXProvider, error) {
-	// 1. Initialize the ONNX Runtime library
+	// 1. Bootstrap missing resources
+	if err := BootstrapONNX(modelPath, vocabPath); err != nil {
+		return nil, fmt.Errorf("failed to bootstrap ONNX resources: %v", err)
+	}
+
+	// 2. Initialize the ONNX Runtime library
 	if !ort.IsInitialized() {
 		libPath := "onnxruntime.dll"
 		if _, err := os.Stat(libPath); os.IsNotExist(err) {

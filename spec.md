@@ -54,3 +54,10 @@ A dedicated testing suite will ensure the proxy is both effective (high catch ra
 - **False Positive Suite:** A collection of "Safe" strings that look like secrets but are legitimate (e.g., hashes in lockfiles, UUIDs) to prevent over-redaction.
 - **Performance Benchmarks:** Automated tests to measure the latency overhead (ms) per kilobyte of traffic to ensure it remains "AI-tool friendly."
 - **Regression Testing:** Every new rule or NER model update must pass the full Golden Dataset and False Positive Suite.
+
+## 9. Bootstrapping & Resource Management
+To simplify the user experience, the application will automatically manage its dependencies:
+- **Root CA Generation:** On first run, a local Root CA is generated if not present.
+- **ONNX Resource Auto-Download:** If the user selects the ONNX NER provider, the application will check for `onnxruntime.dll`, the NER model file, and the vocabulary file.
+  - If any resources are missing, it will automatically download them from trusted sources (GitHub for the DLL, Hugging Face for the models).
+  - This ensures a "one-click" experience even when using heavy ML features.
