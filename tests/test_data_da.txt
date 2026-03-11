@@ -1,0 +1,57 @@
+﻿--- Syntetiske Testdata for NobodyProx ---
+
+Emne: Supportanmodning #1000
+Fra: Sofie Andersen <lars.n@mail.dk>
+Hej support,
+
+Jeg er Sofie Andersen, og jeg har problemer med min konto.
+Min registrerede e-mail er lars.n@mail.dk og mit danske CPR-nummer til verifikation er 250127-5897.
+Hj├ªlp mig venligst med at nulstille min adgangskode.
+
+Med venlig hilsen,
+Sofie Andersen
+---
+Emne: Supportanmodning #1001
+Fra: Sofie Andersen <lars.n@mail.dk>
+Hej support,
+
+Jeg er Sofie Andersen, og jeg har problemer med min konto.
+Min registrerede e-mail er lars.n@mail.dk og mit danske CPR-nummer til verifikation er 200985-3270.
+Hj├ªlp mig venligst med at nulstille min adgangskode.
+
+Med venlig hilsen,
+Sofie Andersen
+---
+Emne: Supportanmodning #1002
+Fra: Sofie Andersen <hanne.p@tjeneste.dk>
+Hej support,
+
+Jeg er Sofie Andersen, og jeg har problemer med min konto.
+Min registrerede e-mail er hanne.p@tjeneste.dk og mit danske CPR-nummer til verifikation er 120369-6809.
+Hj├ªlp mig venligst med at nulstille min adgangskode.
+
+Med venlig hilsen,
+Sofie Andersen
+---
+
+// System Logs (JSON format)
+{"timestamp": "2026-03-11T22:02:00+01:00", "level": "INFO", "user": "Sofie Andersen", "cpr": "100794-7726", "api_key": "sk-nIKSEO6pisxHOwtFjWVgGqGMPh9fqLEs0h4jb6OxZPphfLVh", "msg": "Bruger fik adgang til sikker ressource"}
+{"timestamp": "2026-03-11T22:02:00+01:00", "level": "INFO", "user": "Sofie Andersen", "cpr": "240901-5942", "api_key": "sk-3SAJaTrer9pP5riWOgEa7vsOlE6sxqZMkRwXCKuSQw0P2KDB", "msg": "Bruger fik adgang til sikker ressource"}
+{"timestamp": "2026-03-11T22:02:00+01:00", "level": "INFO", "user": "Lars Nielsen", "cpr": "060705-3332", "api_key": "sk-FFqmJ7V4kqssxTPb2VU4Y7E5TCUFv3h1FXyBDZ6wilQRfzgq", "msg": "Bruger fik adgang til sikker ressource"}
+{"timestamp": "2026-03-11T22:02:00+01:00", "level": "INFO", "user": "Mette Jensen", "cpr": "240837-1349", "api_key": "sk-N1ytCxBamRQCTbqprQ0OtuQEP2JxcvjPc4SKvJGHrFozq7dz", "msg": "Bruger fik adgang til sikker ressource"}
+{"timestamp": "2026-03-11T22:02:00+01:00", "level": "INFO", "user": "Sofie Andersen", "cpr": "250489-8792", "api_key": "sk-gaQJoupamHNLFDU14E1a0dXMpd8wqkl5rIBGyuIw4pXtmFD0", "msg": "Bruger fik adgang til sikker ressource"}
+
+// Applikationskodestumper
+const config = {
+  apiKey: 'sk-jwURDl7qOczIanimMHNVO2znZvovz30sGtN4aamzNDtsXngq',
+  adminEmail: 'mette.j@firma.dk',
+  environment: 'production',
+};
+
+func ConnectToService() {
+  // Hardcoded hemmelighed til test
+  token := "sk-dps6EQ0ooNiByPUbTAI3fQqjwLFEROiB9kPmdrVjJzKHSszP"
+  fmt.Println("Connecting...")
+}
+
+--- Slut p├Ñ testdata ---
