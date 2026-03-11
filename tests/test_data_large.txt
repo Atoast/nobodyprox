@@ -1,0 +1,57 @@
+﻿--- Synthetic Test Data for NobodyProx ---
+
+Subject: Support Request #1000
+From: David Wilson <charlie_b@outlook.dk>
+Hi support,
+
+I am David Wilson, and I am having trouble with my account.
+My registered email is charlie_b@outlook.dk and my Danish CPR for verification is 130516-0759.
+Please help me reset my password.
+
+Best regards,
+David Wilson
+---
+Subject: Support Request #1001
+From: Hans Pedersen <alice@example.com>
+Hi support,
+
+I am Hans Pedersen, and I am having trouble with my account.
+My registered email is alice@example.com and my Danish CPR for verification is 100154-8173.
+Please help me reset my password.
+
+Best regards,
+Hans Pedersen
+---
+Subject: Support Request #1002
+From: Charlie Brown <bob.j@gmail.com>
+Hi support,
+
+I am Charlie Brown, and I am having trouble with my account.
+My registered email is bob.j@gmail.com and my Danish CPR for verification is 250818-0488.
+Please help me reset my password.
+
+Best regards,
+Charlie Brown
+---
+
+// System Logs (JSON format)
+{"timestamp": "2026-03-11T21:04:31+01:00", "level": "INFO", "user": "Charlie Brown", "cpr": "200986-0752", "api_key": "sk-G5DIhBij1Tnpf7XD0Lj8DogVASXkypi79rwlKHdAo5QKWGy1", "msg": "User accessed secure resource"}
+{"timestamp": "2026-03-11T21:04:31+01:00", "level": "INFO", "user": "Bob Jones", "cpr": "051091-7048", "api_key": "sk-3Ws0oRenpaNZCMWMc5BbhD55ZLPbq6dzJvGdQKyg2CUi2jbC", "msg": "User accessed secure resource"}
+{"timestamp": "2026-03-11T21:04:31+01:00", "level": "INFO", "user": "Bob Jones", "cpr": "061258-1147", "api_key": "sk-kUEQPLJ4BmzQlRPOjlLUNvLin5FD5nkAKW4JfbH4Pqfn2cLY", "msg": "User accessed secure resource"}
+{"timestamp": "2026-03-11T21:04:31+01:00", "level": "INFO", "user": "David Wilson", "cpr": "030226-8990", "api_key": "sk-s3yI8Z7wuPIFAfPFCjDoTunhajFIy7CPgIeAyf1OwzDSUT3t", "msg": "User accessed secure resource"}
+{"timestamp": "2026-03-11T21:04:31+01:00", "level": "INFO", "user": "David Wilson", "cpr": "231089-6443", "api_key": "sk-dCj9m9e41ds1pLhFzqvWiFTYW0CjszGqj4xOX40la9hcYtr7", "msg": "User accessed secure resource"}
+
+// Application Code Snippets
+const config = {
+  apiKey: 'sk-fX8nMKCXNeYcjLplMq3r80bPTWeYAndi7tVIUkSTD0L56ax3',
+  adminEmail: 'bob.j@gmail.com',
+  environment: 'production',
+};
+
+func ConnectToService() {
+  // Hardcoded secret for testing
+  token := "sk-qpA1nZQeYVpUAv5tpXSf7w23gniChEhfybOq5xgRVYqN6tt2"
+  fmt.Println("Connecting...")
+}
+
+--- End of Test Data ---
