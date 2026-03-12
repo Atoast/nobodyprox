@@ -27,4 +27,3 @@ certs/*.crt
 # ONNX Runtime and Models
 onnxruntime.dll
 models/
-tools/
