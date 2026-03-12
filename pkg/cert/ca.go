@@ -3,6 +3,7 @@ package cert
 import (
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/sha1"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
@@ -88,18 +89,26 @@ func createCA(dir string) (*CA, error) {
 		return nil, err
 	}
 
+	// Calculate Subject Key ID (RFC 5280)
+	pubKeyBytes, err := x509.MarshalPKIXPublicKey(&key.PublicKey)
+	if err != nil {
+		return nil, err
+	}
+	hash := sha1.Sum(pubKeyBytes)
+
 	template := &x509.Certificate{
 		SerialNumber: serialNumber,
 		Subject: pkix.Name{
 			Organization: []string{"NobodyProx Privacy Proxy"},
 			CommonName:   "NobodyProx Root CA",
 		},
-		NotBefore:             time.Now(),
+		NotBefore:             time.Now().Add(-1 * time.Hour),
 		NotAfter:              time.Now().AddDate(10, 0, 0), // 10 years
 		IsCA:                  true,
 		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth, x509.ExtKeyUsageServerAuth},
-		KeyUsage:              x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign,
+		KeyUsage:              x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign | x509.KeyUsageCRLSign,
 		BasicConstraintsValid: true,
+		SubjectKeyId:          hash[:],
 	}
 
 	certBytes, err := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)

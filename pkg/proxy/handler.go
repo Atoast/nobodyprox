@@ -65,6 +65,7 @@ func (p *Proxy) handleConnect(w http.ResponseWriter, r *http.Request, reqID stri
 
 	tlsConfig := &tls.Config{
 		Certificates: []tls.Certificate{*tlsCert},
+		MinVersion:   tls.VersionTLS12,
 	}
 
 	tlsConn := tls.Server(clientConn, tlsConfig)
