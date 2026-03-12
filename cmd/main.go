@@ -92,8 +92,9 @@ func main() {
 	}
 
 	p := &proxy.Proxy{
-		CA:     ca,
-		Filter: engine,
+		CA:            ca,
+		Filter:        engine,
+		FilterDomains: cfg.FilterDomains,
 	}
 
 	addr := fmt.Sprintf(":%d", cfg.ProxyPort)

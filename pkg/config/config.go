@@ -32,6 +32,7 @@ type Config struct {
 	NERProvider    string                     `yaml:"ner_provider"`
 	ActiveModel    string                     `yaml:"active_model"`
 	WatchMode      bool                       `yaml:"watch_mode"`
+	FilterDomains  []string                   `yaml:"filter_domains"`
 	ONNXRuntimeURL string                     `yaml:"onnx_runtime_url"`
 	ONNXModels     map[string]ONNXModelConfig `yaml:"onnx_models"`
 	Rules          []Rule                     `yaml:"rules"`
@@ -79,6 +80,10 @@ active_model: bert-multilingual
 # When true, the proxy logs sensitive data found but does NOT redact it.
 # Can be overridden by the --watch command line flag.
 watch_mode: false
+
+# List of domains to filter. If empty, ALL domains will be filtered.
+# Example: ["openai.com", "anthropic.com", "httpbin.org"]
+filter_domains: []
 
 # URL to download the ONNX Runtime DLL if missing (Windows x64).
 onnx_runtime_url: https://github.com/microsoft/onnxruntime/releases/download/v1.24.1/onnxruntime-win-x64-1.24.1.zip

@@ -16,6 +16,10 @@ active_model: mmbert-scandi
 # Can be overridden by the --watch command line flag.
 watch_mode: false
 
+# List of domains to filter. If empty, ALL domains will be filtered.
+# Example: ["openai.com", "anthropic.com", "httpbin.org"]
+filter_domains: []
+
 # URL to download the ONNX Runtime DLL if missing (Windows x64).
 onnx_runtime_url: https://github.com/microsoft/onnxruntime/releases/download/v1.24.1/onnxruntime-win-x64-1.24.1.zip
 

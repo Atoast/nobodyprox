@@ -16,14 +16,25 @@ import (
 )
 
 type Proxy struct {
-	CA     *cert.CA
-	Filter *filter.Engine
+	CA            *cert.CA
+	Filter        *filter.Engine
+	FilterDomains []string
+}
+
+func (p *Proxy) shouldFilter(host string) bool {
+	if len(p.FilterDomains) == 0 {
+		return true
+	}
+	for _, domain := range p.FilterDomains {
+		if strings.HasSuffix(host, domain) {
+			return true
+		}
+	}
+	return false
 }
 
 func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	reqID := fmt.Sprintf("%x", r.Context().Value(struct{}{}) ) // Just a placeholder, we'll use a better one
-	// Use a simple hash of time + pointer for a unique ID
-	reqID = fmt.Sprintf("%x", (uintptr)(unsafe.Pointer(r)) ^ (uintptr)(time.Now().UnixNano()))[:8]
+	reqID := fmt.Sprintf("%x", (uintptr)(unsafe.Pointer(r)) ^ (uintptr)(time.Now().UnixNano()))[:8]
 
 	if r.Method == http.MethodConnect {
 		p.handleConnect(w, r, reqID)
@@ -37,6 +48,46 @@ func (p *Proxy) handleConnect(w http.ResponseWriter, r *http.Request, reqID stri
 	host, _, err := net.SplitHostPort(r.Host)
 	if err != nil {
 		host = r.Host
+	}
+
+	// Domain-specific bypass optimization
+	if !p.shouldFilter(host) {
+		log.Printf("[%s][Proxy] Bypassing MITM for %s (Domain not in filter list)", reqID, host)
+		hijacker, ok := w.(http.Hijacker)
+		if !ok {
+			http.Error(w, "Hijacking not supported", http.StatusInternalServerError)
+			return
+		}
+		clientConn, _, err := hijacker.Hijack()
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusServiceUnavailable)
+			return
+		}
+		defer clientConn.Close()
+
+		_, err = clientConn.Write([]byte("HTTP/1.1 200 Connection Established\r\n\r\n"))
+		if err != nil {
+			return
+		}
+
+		remoteConn, err := net.Dial("tcp", r.Host)
+		if err != nil {
+			log.Printf("[%s][Proxy] Failed to connect to %s: %v", reqID, r.Host, err)
+			return
+		}
+		defer remoteConn.Close()
+
+		errChan := make(chan error, 2)
+		go func() {
+			_, err := io.Copy(remoteConn, clientConn)
+			errChan <- err
+		}()
+		go func() {
+			_, err := io.Copy(clientConn, remoteConn)
+			errChan <- err
+		}()
+		<-errChan
+		return
 	}
 
 	tlsCert, err := p.CA.GenerateCert(host)
@@ -70,7 +121,7 @@ func (p *Proxy) handleConnect(w http.ResponseWriter, r *http.Request, reqID stri
 
 	tlsConn := tls.Server(clientConn, tlsConfig)
 	if err := tlsConn.Handshake(); err != nil {
-		log.Printf("TLS handshake failed for %s: %v", host, err)
+		log.Printf("[%s][Proxy] TLS handshake failed for %s: %v", reqID, host, err)
 		tlsConn.Close()
 		return
 	}
@@ -81,13 +132,12 @@ func (p *Proxy) handleConnect(w http.ResponseWriter, r *http.Request, reqID stri
 		InsecureSkipVerify: false,
 	})
 	if err != nil {
-		log.Printf("Failed to connect to remote server %s: %v", r.Host, err)
+		log.Printf("[%s][Proxy] Failed to connect to remote server %s: %v", reqID, r.Host, err)
 		return
 	}
 	defer remoteConn.Close()
 
 	// Intercept the HTTP requests within the TLS connection
-	// We wrap the connections to redact data on the fly
 	errChan := make(chan error, 2)
 	go func() {
 		errChan <- p.pipeWithRedaction(remoteConn, tlsConn, reqID)
@@ -133,6 +183,26 @@ func (p *Proxy) handleHTTP(w http.ResponseWriter, r *http.Request, reqID string)
 	}
 	if r.URL.Host == "" {
 		r.URL.Host = r.Host
+	}
+
+	// Domain-specific bypass optimization
+	if !p.shouldFilter(r.URL.Host) {
+		log.Printf("[%s][Proxy] Bypassing redaction for %s", reqID, r.URL.Host)
+		resp, err := http.DefaultTransport.RoundTrip(r)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusServiceUnavailable)
+			return
+		}
+		defer resp.Body.Close()
+
+		for k, vv := range resp.Header {
+			for _, v := range vv {
+				w.Header().Add(k, v)
+			}
+		}
+		w.WriteHeader(resp.StatusCode)
+		io.Copy(w, resp.Body)
+		return
 	}
 
 	// Disable compression so we can redact the response body easily
