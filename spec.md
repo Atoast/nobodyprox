@@ -39,6 +39,7 @@ A fast, transparent proxy designed to intercept and filter sensitive data from o
 - **Phase 2: Filtering Engine & Configuration** - Implement the regex/pattern-matching engine, integrate the YAML configuration loader, and build the initial predefined rulesets. 
 - **Phase 2.1: NER Integration & Language Support** - Evaluate and integrate a lightweight NER model (Option A, B, or C) as an optional layer. Prioritize high-performance Danish and English support (e.g., using ONNX or DaCy).
 - **Phase 3: CLI Polish & Distribution** - Finalize the CLI commands, logging formatting, and create release binaries for major operating systems.
+- **Phase 4: Interactive TUI Dashboard** - Implement a "Bubble Tea" based terminal interface for live monitoring, stats tracking, and hot-swapping configuration/models.
 
 ## 7. Data Dictionary (Initial Focus)
 To ensure high accuracy, we will maintain a "Data Dictionary" defining the patterns and characteristics of each sensitive data type:
