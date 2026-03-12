@@ -6,6 +6,7 @@ import (
 	"log"
 	"regexp"
 	"sort"
+	"strings"
 	"sync"
 )
 
@@ -97,6 +98,12 @@ func (e *Engine) RedactBytes(input []byte, context, reqID string) []byte {
 		entities, err := e.NER.ExtractEntities(string(input))
 		if err == nil {
 			for _, ent := range entities {
+				// Basic heuristic to skip redacting technical or JSON-structural strings
+				trimmed := strings.TrimSpace(ent.Text)
+				if len(trimmed) <= 2 || strings.ContainsAny(trimmed, "{}[]\":") {
+					continue
+				}
+
 				// Find matching rule for this EntityType
 				var matchingRule *Rule
 				for i := range e.Rules {

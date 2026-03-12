@@ -10,7 +10,7 @@ proxy_port: 8080
 ner_provider: onnx
 
 # The active ONNX model to use from the onnx_models map below.
-active_model: bert-multilingual-quantized
+active_model: mmbert-scandi
 
 # When true, the proxy logs sensitive data found but does NOT redact it.
 # Can be overridden by the --watch command line flag.
@@ -69,4 +69,7 @@ rules:
       action: REDACT
     - name: LOC_DETECTION
       entity_type: LOCATION
+      action: REDACT
+    - name: MISC_DETECTION
+      entity_type: MISC
       action: REDACT

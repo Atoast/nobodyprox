@@ -76,7 +76,8 @@ func (t *WordPieceTokenizer) Tokenize(text string) (ids, mask, starts, ends []in
 		wordEnd := wordStart + len(word)
 		currentPos = wordEnd
 
-		subwords := t.wordPiece(strings.ToLower(word))
+		// Only lowercase for vocab lookup if necessary (most bert-base-multilingual are cased)
+		subwords := t.wordPiece(word)
 		for _, sw := range subwords {
 			id := t.vocab["[UNK]"]
 			if val, ok := t.vocab[sw]; ok {
@@ -145,8 +146,12 @@ func (t *WordPieceTokenizer) wordPiece(word string) []string {
 			if start > 0 {
 				substr = "##" + substr
 			}
+			// Try exact match first, then lowercase match
 			if _, ok := t.vocab[substr]; ok {
 				curSubword = substr
+				break
+			} else if _, ok := t.vocab[strings.ToLower(substr)]; ok {
+				curSubword = strings.ToLower(substr)
 				break
 			}
 			end--
