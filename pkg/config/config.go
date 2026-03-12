@@ -2,10 +2,20 @@ package config
 
 import (
 	"os"
+	"regexp"
 
-	"github.com/nobodyprox/nobodyprox/pkg/filter"
 	"gopkg.in/yaml.v3"
 )
+
+// Rule represents a single redaction or pseudonymization rule
+type Rule struct {
+	Name        string         `yaml:"name"`
+	Pattern     string         `yaml:"pattern"`
+	EntityType  string         `yaml:"entity_type"`
+	Replacement string         `yaml:"replacement"`
+	Action      string         `yaml:"action"`
+	Regex       *regexp.Regexp `yaml:"-"`
+}
 
 type ONNXModelConfig struct {
 	ModelPath         string         `yaml:"model_path"`
@@ -18,13 +28,13 @@ type ONNXModelConfig struct {
 }
 
 type Config struct {
-	ProxyPort      int                          `yaml:"proxy_port"`
-	NERProvider    string                       `yaml:"ner_provider"`
-	ActiveModel    string                       `yaml:"active_model"`
-	WatchMode      bool                         `yaml:"watch_mode"`
-	ONNXRuntimeURL string                       `yaml:"onnx_runtime_url"`
-	ONNXModels     map[string]ONNXModelConfig   `yaml:"onnx_models"`
-	Rules          []filter.Rule                `yaml:"rules"`
+	ProxyPort      int                        `yaml:"proxy_port"`
+	NERProvider    string                     `yaml:"ner_provider"`
+	ActiveModel    string                     `yaml:"active_model"`
+	WatchMode      bool                       `yaml:"watch_mode"`
+	ONNXRuntimeURL string                     `yaml:"onnx_runtime_url"`
+	ONNXModels     map[string]ONNXModelConfig `yaml:"onnx_models"`
+	Rules          []Rule                     `yaml:"rules"`
 }
 
 // LoadConfig reads the configuration from a YAML file
@@ -40,11 +50,10 @@ func LoadConfig(path string) (*Config, error) {
 
 	var cfg Config
 	if err := yaml.NewDecoder(f).Decode(&cfg); err != nil {
-	        return nil, err
+		return nil, err
 	}
 
 	// Apply defaults for missing runtime URL
-
 	if cfg.ONNXRuntimeURL == "" {
 		cfg.ONNXRuntimeURL = "https://github.com/microsoft/onnxruntime/releases/download/v1.24.1/onnxruntime-win-x64-1.24.1.zip"
 	}
@@ -72,26 +81,32 @@ active_model: bert-multilingual
 watch_mode: false
 
 # URL to download the ONNX Runtime DLL if missing (Windows x64).
-onnx_runtime_url: https://github.com/microsoft/onnxruntime/releases/download/v1.17.1/onnxruntime-win-x64-1.17.1.zip
+onnx_runtime_url: https://github.com/microsoft/onnxruntime/releases/download/v1.24.1/onnxruntime-win-x64-1.24.1.zip
 
 # Map of available ONNX models and their download locations.
 onnx_models:
     bert-multilingual:
-        model_path: models/model.onnx
-        vocab_path: models/vocab.txt
+        model_path: models/bert-multilingual/model.onnx
+        vocab_path: models/bert-multilingual/vocab.txt
+        config_path: models/bert-multilingual/config.json
         model_download_url: https://huggingface.co/Xenova/bert-base-multilingual-cased-ner-hrl/resolve/main/onnx/model.onnx
         vocab_download_url: https://huggingface.co/Xenova/bert-base-multilingual-cased-ner-hrl/resolve/main/vocab.txt
+        config_download_url: https://huggingface.co/Xenova/bert-base-multilingual-cased-ner-hrl/resolve/main/config.json
     bert-multilingual-quantized:
-        model_path: models/model_quantized.onnx
-        vocab_path: models/vocab.txt
+        model_path: models/bert-multilingual-quantized/model.onnx
+        vocab_path: models/bert-multilingual-quantized/vocab.txt
+        config_path: models/bert-multilingual-quantized/config.json
         model_download_url: https://huggingface.co/Xenova/bert-base-multilingual-cased-ner-hrl/resolve/main/onnx/model_quantized.onnx
         vocab_download_url: https://huggingface.co/Xenova/bert-base-multilingual-cased-ner-hrl/resolve/main/vocab.txt
+        config_download_url: https://huggingface.co/Xenova/bert-base-multilingual-cased-ner-hrl/resolve/main/config.json
 
-# Custom regex rules for PII detection.
+# Custom regex and NER rules for PII detection.
+# Rules can be based on a regex "pattern" or an NER "entity_type".
 # Actions:
-#   - REDACT: Replaces matches with [REDACTED: RuleName] (default).
+#   - REDACT: Replaces matches with [REDACTED: RuleName/EntityType] (default).
 #   - PSEUDONYMIZE: Replaces matches with a consistent hash, e.g., [RuleName_a1b2c3d4].
 rules:
+    # Regex Rules (Fast Path)
     - name: OPENAI_KEY
       pattern: sk-[a-zA-Z0-9]{48}
       action: REDACT
@@ -100,6 +115,20 @@ rules:
       action: REDACT
     - name: EMAIL
       pattern: \b[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}\b
+      action: REDACT
+
+    # NER Rules (Deep Path - requires ONNX or Prose)
+    - name: PERSON_DETECTION
+      entity_type: PERSON
+      action: PSEUDONYMIZE
+    - name: ORG_DETECTION
+      entity_type: ORGANIZATION
+      action: REDACT
+    - name: LOC_DETECTION
+      entity_type: LOCATION
+      action: REDACT
+    - name: MISC_DETECTION
+      entity_type: MISC
       action: REDACT
 `
 	err := os.WriteFile(path, []byte(content), 0644)

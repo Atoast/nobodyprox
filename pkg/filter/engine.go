@@ -8,6 +8,8 @@ import (
 	"sort"
 	"strings"
 	"sync"
+
+	"github.com/nobodyprox/nobodyprox/pkg/config"
 )
 
 // ActionMode defines the action to take for a match
@@ -18,16 +20,6 @@ const (
 	ActionPseudonymize ActionMode = "PSEUDONYMIZE"
 )
 
-// Rule represents a single redaction or pseudonymization rule
-type Rule struct {
-	Name        string         `yaml:"name"`
-	Pattern     string         `yaml:"pattern"`
-	EntityType  string         `yaml:"entity_type"`
-	Replacement string         `yaml:"replacement"`
-	Action      ActionMode     `yaml:"action"`
-	Regex       *regexp.Regexp `yaml:"-"`
-}
-
 // Match represents a found piece of sensitive data with its location
 type Match struct {
 	Start       int
@@ -35,12 +27,12 @@ type Match struct {
 	Replacement string
 	Type        string
 	Original    string
-	Action      ActionMode
+	Action      string
 }
 
 // Engine manages the redaction and pseudonymization process
 type Engine struct {
-	Rules     []Rule
+	Rules     []config.Rule
 	NER       NERProvider
 	WatchMode bool
 	mappings  map[string]string // Original -> Synthetic
@@ -48,7 +40,7 @@ type Engine struct {
 }
 
 // NewEngine creates a new filter engine
-func NewEngine(rules []Rule, ner NERProvider, watchMode bool) (*Engine, error) {
+func NewEngine(rules []config.Rule, ner NERProvider, watchMode bool) (*Engine, error) {
 	for i := range rules {
 		if rules[i].Pattern != "" {
 			re, err := regexp.Compile(rules[i].Pattern)
@@ -59,9 +51,9 @@ func NewEngine(rules []Rule, ner NERProvider, watchMode bool) (*Engine, error) {
 		}
 		
 		if rules[i].Action == "" {
-			rules[i].Action = ActionRedact
+			rules[i].Action = string(ActionRedact)
 		}
-		if rules[i].Replacement == "" && rules[i].Action == ActionRedact {
+		if rules[i].Replacement == "" && rules[i].Action == string(ActionRedact) {
 			if rules[i].EntityType != "" {
 				rules[i].Replacement = "[REDACTED: " + rules[i].EntityType + "]"
 			} else {
@@ -105,7 +97,7 @@ func (e *Engine) RedactBytes(input []byte, context, reqID string) []byte {
 				}
 
 				// Find matching rule for this EntityType
-				var matchingRule *Rule
+				var matchingRule *config.Rule
 				for i := range e.Rules {
 					if e.Rules[i].EntityType == string(ent.Type) {
 						matchingRule = &e.Rules[i]
@@ -118,7 +110,7 @@ func (e *Engine) RedactBytes(input []byte, context, reqID string) []byte {
 				}
 
 				replacement := matchingRule.Replacement
-				if matchingRule.Action == ActionPseudonymize {
+				if matchingRule.Action == string(ActionPseudonymize) {
 					e.mu.Lock()
 					if synth, ok := e.mappings[ent.Text]; ok {
 						replacement = synth
@@ -157,7 +149,7 @@ func (e *Engine) RedactBytes(input []byte, context, reqID string) []byte {
 			val := string(input[loc[0]:loc[1]])
 			replacement := rule.Replacement
 			
-			if rule.Action == ActionPseudonymize {
+			if rule.Action == string(ActionPseudonymize) {
 				e.mu.Lock()
 				if synth, ok := e.mappings[val]; ok {
 					replacement = synth

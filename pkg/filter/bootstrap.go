@@ -9,7 +9,22 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/nobodyprox/nobodyprox/pkg/config"
 )
+
+// BootstrapAll prepares all models defined in the configuration
+func BootstrapAll(cfg *config.Config) error {
+	log.Println("[Bootstrap] Starting full environment setup...")
+	for name, m := range cfg.ONNXModels {
+		log.Printf("[Bootstrap] Preparing model: %s", name)
+		err := BootstrapONNX(m.ModelPath, m.VocabPath, m.ConfigPath, cfg.ONNXRuntimeURL, m.ModelDownloadURL, m.VocabDownloadURL, m.ConfigDownloadURL)
+		if err != nil {
+			return fmt.Errorf("failed to bootstrap model %s: %v", name, err)
+		}
+	}
+	return nil
+}
 
 // BootstrapONNX checks for and downloads missing ONNX resources
 func BootstrapONNX(modelPath, vocabPath, configPath, onnxURL, modelURL, vocabURL, configURL string) error {
