@@ -12,6 +12,7 @@ import (
 	"unsafe"
 
 	"github.com/nobodyprox/nobodyprox/pkg/cert"
+	"github.com/nobodyprox/nobodyprox/pkg/event"
 	"github.com/nobodyprox/nobodyprox/pkg/filter"
 )
 
@@ -36,12 +37,30 @@ func (p *Proxy) shouldFilter(host string) bool {
 func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	reqID := fmt.Sprintf("%x", (uintptr)(unsafe.Pointer(r)) ^ (uintptr)(time.Now().UnixNano()))[:8]
 
+	event.GlobalBus.Publish(event.Event{
+		Type:  event.TypeRequestStart,
+		ReqID: reqID,
+		Data: event.RequestData{
+			Method: r.Method,
+			URL:    r.URL.String(),
+			Host:   r.Host,
+		},
+	})
+	start := time.Now()
+
 	if r.Method == http.MethodConnect {
 		p.handleConnect(w, r, reqID)
-		return
+	} else {
+		p.handleHTTP(w, r, reqID)
 	}
 
-	p.handleHTTP(w, r, reqID)
+	event.GlobalBus.Publish(event.Event{
+		Type:  event.TypeRequestEnd,
+		ReqID: reqID,
+		Data: event.RequestEndData{
+			Duration: time.Since(start),
+		},
+	})
 }
 
 func (p *Proxy) handleConnect(w http.ResponseWriter, r *http.Request, reqID string) {

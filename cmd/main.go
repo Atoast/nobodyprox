@@ -3,15 +3,19 @@ package main
 import (
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
 	"path/filepath"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/nobodyprox/nobodyprox/pkg/cert"
 	"github.com/nobodyprox/nobodyprox/pkg/config"
+	"github.com/nobodyprox/nobodyprox/pkg/event"
 	"github.com/nobodyprox/nobodyprox/pkg/filter"
 	"github.com/nobodyprox/nobodyprox/pkg/proxy"
+	"github.com/nobodyprox/nobodyprox/pkg/tui"
 )
 
 func main() {
@@ -23,6 +27,7 @@ func main() {
 
 	// 2. Parse Standard Command Line Flags
 	watchFlag := flag.Bool("watch", false, "Enable watch mode (logs sensitive data without redacting)")
+	tuiFlag := flag.Bool("tui", false, "Enable interactive TUI dashboard")
 	flag.Parse()
 
 	// 3. Load Configuration
@@ -32,28 +37,37 @@ func main() {
 	}
 
 	if *watchFlag {
-		log.Printf("Command line --watch flag detected, enabling WatchMode")
 		cfg.WatchMode = true
 	}
 
-	// 4. Trust Verification
+	// 4. Setup Logging for TUI
+	if *tuiFlag {
+		// Disable standard logging to stdout to not mess up the TUI
+		log.SetOutput(io.Discard)
+	}
+
+	// 5. Trust Verification
 	tm := cert.NewTrustManager()
 	if !tm.IsTrusted("NobodyProx Root CA") {
-		log.Println("--------------------------------------------------------------------------------")
-		log.Println("[WARNING] Root CA is NOT trusted by your system.")
-		log.Println("HTTPS filtering will fail with SSL errors until the CA is trusted.")
-		log.Println("Run 'nobodyprox setup' to automate trust and model installation.")
-		log.Println("--------------------------------------------------------------------------------")
+		if !*tuiFlag {
+			log.Println("--------------------------------------------------------------------------------")
+			log.Println("[WARNING] Root CA is NOT trusted by your system.")
+			log.Println("HTTPS filtering will fail with SSL errors until the CA is trusted.")
+			log.Println("Run 'nobodyprox setup' to automate trust and model installation.")
+			log.Println("--------------------------------------------------------------------------------")
+		}
 	}
 
 	// Initialize NER Provider
 	var ner filter.NERProvider
+	modelName := "none"
 	switch cfg.NERProvider {
 	case "prose":
 		ner, err = filter.NewProseProvider()
 		if err != nil {
 			log.Fatalf("Failed to initialize Prose provider: %v", err)
 		}
+		modelName = "prose-default"
 	case "onnx":
 		onnxCfg, ok := cfg.ONNXModels[cfg.ActiveModel]
 		if !ok {
@@ -73,6 +87,7 @@ func main() {
 				log.Printf("Warning: Failed to initialize ONNX provider: %v", err)
 			} else {
 				ner = onnxProvider
+				modelName = cfg.ActiveModel
 			}
 		}
 	default:
@@ -84,6 +99,17 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to initialize filter engine: %v", err)
 	}
+
+	// Listen for TUI configuration changes
+	go func() {
+		bus := event.GlobalBus.Subscribe()
+		for e := range bus {
+			if e.Type == event.TypeConfigChange {
+				watchMode := e.Data.(bool)
+				engine.WatchMode = watchMode
+			}
+		}
+	}()
 
 	// Initialize CA
 	ca, err := cert.LoadOrCreateCA("certs")
@@ -98,11 +124,29 @@ func main() {
 	}
 
 	addr := fmt.Sprintf(":%d", cfg.ProxyPort)
-	log.Printf("Privacy Proxy starting on %s (WatchMode: %v)", addr, cfg.WatchMode)
-	log.Printf("To use: configure your tool to use HTTP_PROXY=http://localhost%s", addr)
+	
+	if *tuiFlag {
+		// Run proxy in background
+		go func() {
+			if err := http.ListenAndServe(addr, p); err != nil {
+				// We can't log fatal here easily without breaking TUI
+				os.Exit(1)
+			}
+		}()
 
-	if err := http.ListenAndServe(addr, p); err != nil {
-		log.Fatalf("Proxy server failed: %v", err)
+		// Start TUI
+		m := tui.NewModel(cfg.WatchMode, cfg.NERProvider, modelName)
+		if _, err := tea.NewProgram(m, tea.WithAltScreen()).Run(); err != nil {
+			fmt.Printf("Error running TUI: %v", err)
+			os.Exit(1)
+		}
+	} else {
+		log.Printf("Privacy Proxy starting on %s (WatchMode: %v)", addr, cfg.WatchMode)
+		log.Printf("To use: configure your tool to use HTTP_PROXY=http://localhost%s", addr)
+
+		if err := http.ListenAndServe(addr, p); err != nil {
+			log.Fatalf("Proxy server failed: %v", err)
+		}
 	}
 }
 

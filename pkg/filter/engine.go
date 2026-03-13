@@ -10,6 +10,7 @@ import (
 	"sync"
 
 	"github.com/nobodyprox/nobodyprox/pkg/config"
+	"github.com/nobodyprox/nobodyprox/pkg/event"
 )
 
 // ActionMode defines the action to take for a match
@@ -110,7 +111,12 @@ func (e *Engine) RedactBytes(input []byte, context, reqID string) []byte {
 				}
 
 				replacement := matchingRule.Replacement
-				if matchingRule.Action == string(ActionPseudonymize) {
+				action := matchingRule.Action
+				if e.WatchMode {
+					action = "WATCH"
+				}
+
+				if matchingRule.Action == string(ActionPseudonymize) && !e.WatchMode {
 					e.mu.Lock()
 					if synth, ok := e.mappings[ent.Text]; ok {
 						replacement = synth
@@ -121,6 +127,25 @@ func (e *Engine) RedactBytes(input []byte, context, reqID string) []byte {
 					}
 					e.mu.Unlock()
 				}
+
+				// Log discovery
+				if e.WatchMode {
+					log.Printf("[%s][%s][WATCH] Found NER %s: %s", reqID, context, ent.Type, ent.Text)
+				} else {
+					log.Printf("[%s][%s][NER] Found %s: %s (Action: %s)", reqID, context, ent.Type, ent.Text, matchingRule.Action)
+				}
+
+				// Publish Event
+				event.GlobalBus.Publish(event.Event{
+					Type:  event.TypeDetection,
+					ReqID: reqID,
+					Data: event.DetectionData{
+						Context:  context,
+						RuleType: string(ent.Type),
+						Original: ent.Text,
+						Action:   action,
+					},
+				})
 
 				matches = append(matches, Match{
 					Start:       ent.Start,
@@ -148,8 +173,12 @@ func (e *Engine) RedactBytes(input []byte, context, reqID string) []byte {
 		for _, loc := range locs {
 			val := string(input[loc[0]:loc[1]])
 			replacement := rule.Replacement
+			action := rule.Action
+			if e.WatchMode {
+				action = "WATCH"
+			}
 			
-			if rule.Action == string(ActionPseudonymize) {
+			if rule.Action == string(ActionPseudonymize) && !e.WatchMode {
 				e.mu.Lock()
 				if synth, ok := e.mappings[val]; ok {
 					replacement = synth
@@ -160,6 +189,25 @@ func (e *Engine) RedactBytes(input []byte, context, reqID string) []byte {
 				}
 				e.mu.Unlock()
 			}
+
+			// Log discovery
+			if e.WatchMode {
+				log.Printf("[%s][%s][WATCH] Found Rule %s: %s", reqID, context, rule.Name, val)
+			} else {
+				log.Printf("[%s][%s][REDACT] Found %s: %s (Action: %s)", reqID, context, rule.Name, val, rule.Action)
+			}
+
+			// Publish Event
+			event.GlobalBus.Publish(event.Event{
+				Type:  event.TypeDetection,
+				ReqID: reqID,
+				Data: event.DetectionData{
+					Context:  context,
+					RuleType: rule.Name,
+					Original: val,
+					Action:   action,
+				},
+			})
 
 			matches = append(matches, Match{
 				Start:       loc[0],
@@ -184,23 +232,16 @@ func (e *Engine) RedactBytes(input []byte, context, reqID string) []byte {
 		return matches[i].Start > matches[j].Start
 	})
 
-	// 4. Handle Overlaps & Execute Replacement
+	// 4. Execute Replacement (only if not in watch mode)
+	if e.WatchMode {
+		return input
+	}
+
 	output := make([]byte, len(input))
 	copy(output, input)
 
 	lastStart := len(input) + 1
 	for _, m := range matches {
-		// Log discovery
-		if e.WatchMode {
-			log.Printf("[%s][%s][WATCH] Found %s: %s", reqID, context, m.Type, m.Original)
-		} else {
-			log.Printf("[%s][%s][REDACT] Found %s: %s (Action: %s)", reqID, context, m.Type, m.Original, m.Action)
-		}
-
-		if e.WatchMode {
-			continue
-		}
-
 		// Skip if this match overlaps with a replacement we already made
 		if m.End > lastStart {
 			continue
