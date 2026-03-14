@@ -27,7 +27,7 @@ func main() {
 
 	// 2. Parse Standard Command Line Flags
 	watchFlag := flag.Bool("watch", false, "Enable watch mode (logs sensitive data without redacting)")
-	tuiFlag := flag.Bool("tui", false, "Enable interactive TUI dashboard")
+	noTuiFlag := flag.Bool("no-tui", false, "Disable interactive TUI dashboard and use standard logging")
 	flag.Parse()
 
 	// 3. Load Configuration
@@ -40,8 +40,10 @@ func main() {
 		cfg.WatchMode = true
 	}
 
-	// 4. Setup Logging for TUI
-	if *tuiFlag {
+	useTUI := !*noTuiFlag
+
+	// 4. Setup Logging
+	if useTUI {
 		// Disable standard logging to stdout to not mess up the TUI
 		log.SetOutput(io.Discard)
 	}
@@ -49,7 +51,7 @@ func main() {
 	// 5. Trust Verification
 	tm := cert.NewTrustManager()
 	if !tm.IsTrusted("NobodyProx Root CA") {
-		if !*tuiFlag {
+		if !useTUI {
 			log.Println("--------------------------------------------------------------------------------")
 			log.Println("[WARNING] Root CA is NOT trusted by your system.")
 			log.Println("HTTPS filtering will fail with SSL errors until the CA is trusted.")
@@ -125,11 +127,10 @@ func main() {
 
 	addr := fmt.Sprintf(":%d", cfg.ProxyPort)
 	
-	if *tuiFlag {
+	if useTUI {
 		// Run proxy in background
 		go func() {
 			if err := http.ListenAndServe(addr, p); err != nil {
-				// We can't log fatal here easily without breaking TUI
 				os.Exit(1)
 			}
 		}()
