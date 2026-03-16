@@ -38,22 +38,23 @@ var (
 			Foreground(lipgloss.Color("#3C3C3C")).
 			Italic(true)
 
-	builderInputStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("#7D56F4")).
-				Bold(true)
-
 	builderOutputStyle = lipgloss.NewStyle().
 				Foreground(lipgloss.Color("#4A90E2")).
 				Bold(true)
+	
+	builderInputLineStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#7D56F4"))
 )
 
 type model struct {
 	mode            viewMode
 	ready           bool
 	viewport        viewport.Model
+	builderViewport viewport.Model
 	textInput       textinput.Model
 	engine          *filter.Engine
 	logs            []string
+	builderLogs     []string
 	totalRequests   int
 	totalRedactions int
 	watchMode       bool
@@ -61,19 +62,19 @@ type model struct {
 	modelName       string
 	availableLabels []string
 	events          chan event.Event
-	builderResult   string
 }
 
 func NewModel(watchMode bool, provider, modelName string, labels []string, engine *filter.Engine) model {
 	ti := textinput.New()
-	ti.Placeholder = "Type text to test rules..."
+	ti.Placeholder = "Type text to test rules and press Enter..."
 	ti.Focus()
-	ti.CharLimit = 156
+	ti.CharLimit = 512
 	ti.Width = 60
 
 	return model{
 		mode:            modeDashboard,
 		logs:            make([]string, 0),
+		builderLogs:     make([]string, 0),
 		textInput:       ti,
 		engine:          engine,
 		watchMode:       watchMode,
@@ -126,6 +127,25 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					Data: m.watchMode,
 				})
 			}
+		case "enter":
+			if m.mode == modeBuilder && m.textInput.Value() != "" {
+				input := m.textInput.Value()
+				
+				// 1. Tagged Result (Debug)
+				tagged := m.engine.DebugRedact(input)
+				
+				// 2. Final Result (Actually applied rules)
+				// We use a dummy reqID and context for the test
+				redacted := m.engine.Redact(input, "TEST", "BUILDER")
+				
+				// Add to builder history
+				m.addBuilderLog(fmt.Sprintf("> %s", input), m.builderViewport.Width)
+				m.addBuilderLog(lipgloss.NewStyle().Foreground(lipgloss.Color("#888888")).Render("  TAGGED:  ")+builderOutputStyle.Render(tagged), m.builderViewport.Width)
+				m.addBuilderLog(lipgloss.NewStyle().Foreground(lipgloss.Color("#888888")).Render("  REDACTED: ")+lipgloss.NewStyle().Foreground(lipgloss.Color("#04B575")).Render(redacted), m.builderViewport.Width)
+				m.addBuilderLog("", m.builderViewport.Width) // Spacer
+				
+				m.textInput.Reset()
+			}
 		}
 
 	case eventMsg:
@@ -149,18 +169,26 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if !m.ready {
 			m.viewport = viewport.New(msg.Width, msg.Height-verticalMarginHeight)
 			m.viewport.SetContent("Waiting for traffic...")
+			
+			m.builderViewport = viewport.New(msg.Width, msg.Height-verticalMarginHeight-4) // -4 for input area
+			m.builderViewport.SetContent("Rule Builder: Type a string and press Enter to test tagging.")
+			
 			m.ready = true
 		} else {
 			m.viewport.Width = msg.Width
 			m.viewport.Height = msg.Height-verticalMarginHeight
+			
+			m.builderViewport.Width = msg.Width
+			m.builderViewport.Height = msg.Height-verticalMarginHeight-4
 		}
-		m.textInput.Width = msg.Width - 10
+		m.textInput.Width = msg.Width - 5
 	}
 
 	if m.mode == modeBuilder {
 		m.textInput, cmd = m.textInput.Update(msg)
 		cmds = append(cmds, cmd)
-		m.builderResult = m.engine.DebugRedact(m.textInput.Value())
+		m.builderViewport, cmd = m.builderViewport.Update(msg)
+		cmds = append(cmds, cmd)
 	} else {
 		m.viewport, cmd = m.viewport.Update(msg)
 		cmds = append(cmds, cmd)
@@ -170,8 +198,22 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m *model) addLog(input string, width int) {
-	timestamp := time.Now().Format("15:04:05")
-	prefix := fmt.Sprintf("[%s] ", timestamp)
+	m.logs = m.wrapAndAppend(m.logs, input, width, true)
+	m.viewport.SetContent(strings.Join(m.logs, "\n"))
+	m.viewport.GotoBottom()
+}
+
+func (m *model) addBuilderLog(input string, width int) {
+	m.builderLogs = m.wrapAndAppend(m.builderLogs, input, width, false)
+	m.builderViewport.SetContent(strings.Join(m.builderLogs, "\n"))
+	m.builderViewport.GotoBottom()
+}
+
+func (m *model) wrapAndAppend(logList []string, input string, width int, withTimestamp bool) []string {
+	var prefix string
+	if withTimestamp {
+		prefix = fmt.Sprintf("[%s] ", time.Now().Format("15:04:05"))
+	}
 	indent := strings.Repeat(" ", len(prefix))
 	
 	lines := strings.Split(input, "\n")
@@ -183,7 +225,7 @@ func (m *model) addLog(input string, width int) {
 	for i, line := range lines {
 		line = strings.TrimRight(line, "\r")
 		if line == "" && i > 0 {
-			m.logs = append(m.logs, indent)
+			logList = append(logList, indent)
 			continue
 		}
 
@@ -194,20 +236,19 @@ func (m *model) addLog(input string, width int) {
 			}
 			
 			chunk := line[:chunkLen]
-			if i == 0 && len(line) == len(lines[0]) {
-				m.logs = append(m.logs, prefix+chunk)
+			if i == 0 && len(line) == len(lines[0]) && withTimestamp {
+				logList = append(logList, prefix+chunk)
 			} else {
-				m.logs = append(m.logs, indent+chunk)
+				logList = append(logList, indent+chunk)
 			}
 			line = line[chunkLen:]
 		}
 	}
 
-	if len(m.logs) > 1000 {
-		m.logs = m.logs[len(m.logs)-1000:]
+	if len(logList) > 1000 {
+		logList = logList[len(logList)-1000:]
 	}
-	m.viewport.SetContent(strings.Join(m.logs, "\n"))
-	m.viewport.GotoBottom()
+	return logList
 }
 
 func (m model) View() string {
@@ -252,19 +293,15 @@ func (m model) dashboardView() string {
 func (m model) builderView() string {
 	header := titleStyle.Render("NobodyProx Rule Builder")
 	
-	inputArea := fmt.Sprintf(
-		"Test String:\n%s\n\nResult:\n%s",
-		m.textInput.View(),
-		builderOutputStyle.Render(m.builderResult),
-	)
-
-	status := infoStyle.Render(fmt.Sprintf("Available Labels: %s", strings.Join(m.availableLabels, ", ")))
+	status := infoStyle.Render(fmt.Sprintf("Active Labels: %s", strings.Join(m.availableLabels, ", ")))
 	
-	footer := "\n [tab] Back to Dashboard  [q] Quit"
+	footer := "\n [tab] Dashboard  [q] Quit"
 
-	return fmt.Sprintf("%s\n\n%s\n\n%s\n%s", 
+	// Layout the builder: Header -> Output Viewport -> Input Field -> Status -> Footer
+	return fmt.Sprintf("%s\n\n%s\n\n%s\n\n%s\n%s", 
 		header, 
-		inputArea,
+		m.builderViewport.View(), 
+		builderInputLineStyle.Render("Input: ")+m.textInput.View(),
 		status,
 		footer)
 }
