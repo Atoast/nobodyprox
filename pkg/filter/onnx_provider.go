@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -18,7 +19,7 @@ type ONNXProvider struct {
 	ModelPath  string
 	ConfigPath string
 	Tokenizer  Tokenizer
-	Labels     map[int]string
+	labelMap   map[int]string
 	
 	// Configured input names
 	inputNames []string
@@ -165,7 +166,7 @@ func NewONNXProvider(modelPath, vocabPath, configPath, onnxURL, modelURL, vocabU
 		ModelPath:           modelPath,
 		ConfigPath:          configPath,
 		Tokenizer:           tokenizer,
-		Labels:              labels,
+		labelMap:            labels,
 		inputNames:          inputNames,
 		inputIdsTensor:      inputIdsTensor,
 		attentionMaskTensor: attentionMaskTensor,
@@ -176,6 +177,23 @@ func NewONNXProvider(modelPath, vocabPath, configPath, onnxURL, modelURL, vocabU
 
 func (p *ONNXProvider) Name() string {
 	return "onnx"
+}
+
+func (p *ONNXProvider) Labels() []string {
+	uniqueMap := make(map[string]bool)
+	for _, label := range p.labelMap {
+		baseLabel := strings.TrimPrefix(strings.TrimPrefix(label, "B-"), "I-")
+		if baseLabel != "" && baseLabel != "O" {
+			uniqueMap[baseLabel] = true
+		}
+	}
+	
+	var labels []string
+	for l := range uniqueMap {
+		labels = append(labels, l)
+	}
+	sort.Strings(labels)
+	return labels
 }
 
 func (p *ONNXProvider) ExtractEntities(text string) ([]Entity, error) {
@@ -215,7 +233,7 @@ func (p *ONNXProvider) ExtractEntities(text string) ([]Entity, error) {
 
 	logits := p.outputTensor.GetData()
 	maxLabelIdx := 0
-	for k := range p.Labels {
+	for k := range p.labelMap {
 		if k > maxLabelIdx {
 			maxLabelIdx = k
 		}
@@ -242,7 +260,7 @@ func (p *ONNXProvider) ExtractEntities(text string) ([]Entity, error) {
 			}
 		}
 
-		label := p.Labels[maxIdx]
+		label := p.labelMap[maxIdx]
 		baseLabel := strings.TrimPrefix(strings.TrimPrefix(label, "B-"), "I-")
 		isBegin := strings.HasPrefix(label, "B-")
 		isInside := strings.HasPrefix(label, "I-")

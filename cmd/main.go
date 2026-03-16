@@ -136,7 +136,7 @@ func main() {
 		}()
 
 		// Start TUI
-		m := tui.NewModel(cfg.WatchMode, cfg.NERProvider, modelName)
+		m := tui.NewModel(cfg.WatchMode, cfg.NERProvider, modelName, engine.Labels(), engine)
 		if _, err := tea.NewProgram(m, tea.WithAltScreen()).Run(); err != nil {
 			fmt.Printf("Error running TUI: %v", err)
 			os.Exit(1)

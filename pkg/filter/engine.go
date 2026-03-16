@@ -78,6 +78,69 @@ func (e *Engine) Redact(input, context, reqID string) string {
 	return string(e.RedactBytes([]byte(input), context, reqID))
 }
 
+// DebugRedact returns the input text with sensitive items tagged, e.g., "Hello <PERSON:Alice>"
+func (e *Engine) DebugRedact(input string) string {
+	if e == nil {
+		return input
+	}
+
+	var matches []Match
+	data := []byte(input)
+
+	// 1. Collect NER Matches
+	if e.NER != nil {
+		entities, err := e.NER.ExtractEntities(input)
+		if err == nil {
+			for _, ent := range entities {
+				matches = append(matches, Match{
+					Start:       ent.Start,
+					End:         ent.End,
+					Replacement: fmt.Sprintf("<%s:%s>", ent.Type, ent.Text),
+				})
+			}
+		}
+	}
+
+	// 2. Collect Regex Matches
+	for _, rule := range e.Rules {
+		if rule.Pattern == "" || rule.Regex == nil {
+			continue
+		}
+		locs := rule.Regex.FindAllIndex(data, -1)
+		for _, loc := range locs {
+			val := string(data[loc[0]:loc[1]])
+			matches = append(matches, Match{
+				Start:       loc[0],
+				End:         loc[1],
+				Replacement: fmt.Sprintf("<%s:%s>", rule.Name, val),
+			})
+		}
+	}
+
+	if len(matches) == 0 {
+		return input
+	}
+
+	// 3. Sort ASCENDING for forward construction
+	sort.Slice(matches, func(i, j int) bool {
+		return matches[i].Start < matches[j].Start
+	})
+
+	var result strings.Builder
+	lastIdx := 0
+	for _, m := range matches {
+		if m.Start < lastIdx {
+			continue
+		}
+		result.WriteString(input[lastIdx:m.Start])
+		result.WriteString(m.Replacement)
+		lastIdx = m.End
+	}
+	result.WriteString(input[lastIdx:])
+
+	return result.String()
+}
+
 // RedactBytes applies all rules and NER detection to the input byte slice using a single-pass replacement
 func (e *Engine) RedactBytes(input []byte, context, reqID string) []byte {
 	if e == nil {
@@ -97,6 +160,21 @@ func (e *Engine) RedactBytes(input []byte, context, reqID string) []byte {
 					continue
 				}
 
+				// If in WatchMode, log EVERYTHING found by NER to help author rules
+				if e.WatchMode {
+					log.Printf("[%s][%s][WATCH] Found NER %s: %s", reqID, context, ent.Type, ent.Text)
+					event.GlobalBus.Publish(event.Event{
+						Type:  event.TypeDetection,
+						ReqID: reqID,
+						Data: event.DetectionData{
+							Context:  context,
+							RuleType: string(ent.Type),
+							Original: ent.Text,
+							Action:   "WATCH",
+						},
+					})
+				}
+
 				// Find matching rule for this EntityType
 				var matchingRule *config.Rule
 				for i := range e.Rules {
@@ -111,12 +189,7 @@ func (e *Engine) RedactBytes(input []byte, context, reqID string) []byte {
 				}
 
 				replacement := matchingRule.Replacement
-				action := matchingRule.Action
-				if e.WatchMode {
-					action = "WATCH"
-				}
-
-				if matchingRule.Action == string(ActionPseudonymize) && !e.WatchMode {
+				if matchingRule.Action == string(ActionPseudonymize) {
 					e.mu.Lock()
 					if synth, ok := e.mappings[ent.Text]; ok {
 						replacement = synth
@@ -129,23 +202,21 @@ func (e *Engine) RedactBytes(input []byte, context, reqID string) []byte {
 				}
 
 				// Log discovery
-				if e.WatchMode {
-					log.Printf("[%s][%s][WATCH] Found NER %s: %s", reqID, context, ent.Type, ent.Text)
-				} else {
+				if !e.WatchMode {
 					log.Printf("[%s][%s][NER] Found %s: %s (Action: %s)", reqID, context, ent.Type, ent.Text, matchingRule.Action)
+					
+					// Publish Event
+					event.GlobalBus.Publish(event.Event{
+						Type:  event.TypeDetection,
+						ReqID: reqID,
+						Data: event.DetectionData{
+							Context:  context,
+							RuleType: string(ent.Type),
+							Original: ent.Text,
+							Action:   matchingRule.Action,
+						},
+					})
 				}
-
-				// Publish Event
-				event.GlobalBus.Publish(event.Event{
-					Type:  event.TypeDetection,
-					ReqID: reqID,
-					Data: event.DetectionData{
-						Context:  context,
-						RuleType: string(ent.Type),
-						Original: ent.Text,
-						Action:   action,
-					},
-				})
 
 				matches = append(matches, Match{
 					Start:       ent.Start,
@@ -237,27 +308,37 @@ func (e *Engine) RedactBytes(input []byte, context, reqID string) []byte {
 		return input
 	}
 
-	output := make([]byte, len(input))
-	copy(output, input)
+	// Stable replacement using a buffer and original offsets
+	var result []byte
+	lastIdx := 0
 
-	lastStart := len(input) + 1
+	// Matches are sorted DESCENDING by Start position
+	// To build the string forward, we need them ASCENDING
+	sort.Slice(matches, func(i, j int) bool {
+		return matches[i].Start < matches[j].Start
+	})
+
 	for _, m := range matches {
-		// Skip if this match overlaps with a replacement we already made
-		if m.End > lastStart {
+		// Skip if this match overlaps with the end of the previous replacement
+		if m.Start < lastIdx {
 			continue
 		}
 
-		// Backward replacement splice
-		newOutput := make([]byte, len(output[:m.Start]))
-		copy(newOutput, output[:m.Start])
-		newOutput = append(newOutput, []byte(m.Replacement)...)
-		newOutput = append(newOutput, output[m.End:]...)
-		output = newOutput
+		// Append text from last match to this match
+		result = append(result, input[lastIdx:m.Start]...)
 		
-		lastStart = m.Start
+		// Append replacement
+		result = append(result, []byte(m.Replacement)...)
+		
+		lastIdx = m.End
 	}
 
-	return output
+	// Append remaining text
+	if lastIdx < len(input) {
+		result = append(result, input[lastIdx:]...)
+	}
+
+	return result
 }
 
 // generateSynthetic creates a consistent synthetic value for a given input
@@ -273,4 +354,11 @@ func (e *Engine) ClearMappings() {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.mappings = make(map[string]string)
+}
+
+func (e *Engine) Labels() []string {
+	if e.NER == nil {
+		return nil
+	}
+	return e.NER.Labels()
 }

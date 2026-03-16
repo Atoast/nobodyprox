@@ -22,4 +22,5 @@ type Entity struct {
 type NERProvider interface {
 	Name() string
 	ExtractEntities(text string) ([]Entity, error)
+	Labels() []string
 }

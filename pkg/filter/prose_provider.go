@@ -20,6 +20,10 @@ func (p *ProseProvider) Name() string {
 	return "prose"
 }
 
+func (p *ProseProvider) Labels() []string {
+	return []string{"PERSON", "ORGANIZATION", "LOCATION"}
+}
+
 func (p *ProseProvider) ExtractEntities(text string) ([]Entity, error) {
 	doc, err := prose.NewDocument(text)
 	if err != nil {
