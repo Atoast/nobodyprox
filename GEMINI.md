@@ -17,3 +17,9 @@
 
 ## 4. Scandinavian Focus
 - Priority is given to high-accuracy Danish and Scandinavian NER support (currently using the `mmbert-scandi` configuration).
+
+## 5. Future Roadmap & Pending Fixes
+- **TUI Fidelity**: Add borders, horizontal rules (HRs), and more sophisticated styling using `lipgloss`.
+- **Rule Builder UX**: Add descriptive text explaining the three outputs (`Input`, `TAGGED`, `REDACTED`).
+- **Whitespace Bug**: Fix the issue where spaces are lost after redaction (e.g., `word[REDACTED]` instead of `word [REDACTED]`).
+- **CI/CD**: Set up a GitHub Actions pipeline to automate the build process for multiple platforms.
