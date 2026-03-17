@@ -243,10 +243,34 @@ func (p *ONNXProvider) ExtractEntities(text string) ([]Entity, error) {
 
 	// 4. Post-process logits
 	var entities []Entity
-	var currentIds []int
 	var currentType string
 	var currentStart int
 	var currentEnd int
+	hasCurrent := false
+
+	// Helper to add entity with whitespace trimming
+	addEntity := func(t string, start, end int, entType string) {
+		if start >= end || start < 0 || end > len(t) {
+			return
+		}
+		raw := t[start:end]
+		trimmedLeft := strings.TrimLeft(raw, " \n\r\t")
+		if trimmedLeft == "" {
+			return
+		}
+		
+		finalStart := start + (len(raw) - len(trimmedLeft))
+		trimmedAll := strings.TrimRight(trimmedLeft, " \n\r\t")
+		finalEnd := finalStart + len(trimmedAll)
+		
+		entities = append(entities, Entity{
+			Type:       EntityType(entType),
+			Text:       trimmedAll,
+			Start:      finalStart,
+			End:        finalEnd,
+			Confidence: 1.0,
+		})
+	}
 
 	for i := 0; i < seqLen; i++ {
 		// Find Argmax
@@ -266,15 +290,9 @@ func (p *ONNXProvider) ExtractEntities(text string) ([]Entity, error) {
 		isInside := strings.HasPrefix(label, "I-")
 
 		if label == "O" || label == "" {
-			if len(currentIds) > 0 {
-				entities = append(entities, Entity{
-					Type:       EntityType(currentType),
-					Text:       text[currentStart:currentEnd],
-					Start:      currentStart,
-					End:        currentEnd,
-					Confidence: 1.0,
-				})
-				currentIds = nil
+			if hasCurrent {
+				addEntity(text, currentStart, currentEnd, currentType)
+				hasCurrent = false
 				currentType = ""
 			}
 			continue
@@ -286,37 +304,25 @@ func (p *ONNXProvider) ExtractEntities(text string) ([]Entity, error) {
 		}
 
 		if isBegin || (isInside && baseLabel != currentType) || (currentType != "" && baseLabel != currentType) {
-			if len(currentIds) > 0 {
-				entities = append(entities, Entity{
-					Type:       EntityType(currentType),
-					Text:       text[currentStart:currentEnd],
-					Start:      currentStart,
-					End:        currentEnd,
-					Confidence: 1.0,
-				})
+			if hasCurrent {
+				addEntity(text, currentStart, currentEnd, currentType)
 			}
-			currentIds = []int{inputIds[i]}
 			currentType = baseLabel
 			currentStart = starts[i]
 			currentEnd = ends[i]
+			hasCurrent = true
 		} else {
-			currentIds = append(currentIds, inputIds[i])
-			if currentType == "" {
+			if !hasCurrent {
 				currentType = baseLabel
 				currentStart = starts[i]
+				hasCurrent = true
 			}
 			currentEnd = ends[i]
 		}
 	}
 
-	if len(currentIds) > 0 {
-		entities = append(entities, Entity{
-			Type:       EntityType(currentType),
-			Text:       text[currentStart:currentEnd],
-			Start:      currentStart,
-			End:        currentEnd,
-			Confidence: 1.0,
-		})
+	if hasCurrent {
+		addEntity(text, currentStart, currentEnd, currentType)
 	}
 
 	return entities, nil

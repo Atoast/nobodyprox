@@ -4,15 +4,16 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/nobodyprox/nobodyprox/pkg/config"
 	"github.com/nobodyprox/nobodyprox/pkg/filter"
 )
 
 func TestPseudonymization(t *testing.T) {
-	rules := []filter.Rule{
+	rules := []config.Rule{
 		{
-			Name:   "NAME",
+			Name:    "NAME",
 			Pattern: `\b[A-Z][a-z]+\b`, // Simple name pattern
-			Action: filter.ActionPseudonymize,
+			Action:  "PSEUDONYMIZE",
 		},
 	}
 

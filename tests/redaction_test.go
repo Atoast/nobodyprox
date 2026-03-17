@@ -3,11 +3,12 @@ package tests
 import (
 	"testing"
 
+	"github.com/nobodyprox/nobodyprox/pkg/config"
 	"github.com/nobodyprox/nobodyprox/pkg/filter"
 )
 
 func TestRedactionEngine(t *testing.T) {
-	rules := []filter.Rule{
+	rules := []config.Rule{
 		{
 			Name:    "OPENAI_KEY",
 			Pattern: `sk-[a-zA-Z0-9]{48}`,

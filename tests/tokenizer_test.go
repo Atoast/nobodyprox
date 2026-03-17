@@ -6,13 +6,13 @@ import (
 )
 
 func TestTokenizer(t *testing.T) {
-	tokenizer, err := filter.NewTokenizer("test_vocab.txt", 16)
+	tokenizer, err := filter.NewWordPieceTokenizer("test_vocab.txt", 16)
 	if err != nil {
 		t.Fatalf("Failed to create tokenizer: %v", err)
 	}
 
 	text := "Alice Smith went"
-	ids, mask := tokenizer.Tokenize(text)
+	ids, mask, _, _ := tokenizer.Tokenize(text)
 
 	// Expected: [CLS] (2), alice (5), smith (6), went (7), [SEP] (3), [PAD] (0) ...
 	if len(ids) != 16 {
@@ -55,14 +55,14 @@ func TestTokenizer(t *testing.T) {
 }
 
 func TestWordPieceSplitting(t *testing.T) {
-	tokenizer, err := filter.NewTokenizer("test_vocab.txt", 16)
+	tokenizer, err := filter.NewWordPieceTokenizer("test_vocab.txt", 16)
 	if err != nil {
 		t.Fatalf("Failed to create tokenizer: %v", err)
 	}
 
 	// "google" is in vocab, "googleoogle" should be split to "google" + "##oogle"
 	text := "googleoogle"
-	ids, _ := tokenizer.Tokenize(text)
+	ids, _, _, _ := tokenizer.Tokenize(text)
 
 	// [CLS] (2), google (10), ##oogle (15), [SEP] (3)
 	if ids[1] != 10 {

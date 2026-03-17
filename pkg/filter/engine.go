@@ -295,15 +295,30 @@ func (e *Engine) RedactBytes(input []byte, context, reqID string) []byte {
 		return input
 	}
 
-	// 3. Sort matches by start position descending (to replace from end to start)
+	// 3. Normalize Matches (Handle whitespace-inclusive tokens)
+	for i := range matches {
+		m := &matches[i]
+		raw := string(input[m.Start:m.End])
+		trimmedLeft := strings.TrimLeft(raw, " \n\r\t")
+		if trimmedLeft == "" {
+			continue
+		}
+		
+		m.Start += (len(raw) - len(trimmedLeft))
+		trimmedAll := strings.TrimRight(trimmedLeft, " \n\r\t")
+		m.End = m.Start + len(trimmedAll)
+		m.Original = trimmedAll
+	}
+
+	// 4. Sort matches by start position ascending
 	sort.Slice(matches, func(i, j int) bool {
 		if matches[i].Start == matches[j].Start {
 			return matches[i].End > matches[j].End
 		}
-		return matches[i].Start > matches[j].Start
+		return matches[i].Start < matches[j].Start
 	})
 
-	// 4. Execute Replacement (only if not in watch mode)
+	// 5. Execute Replacement (only if not in watch mode)
 	if e.WatchMode {
 		return input
 	}
@@ -311,12 +326,6 @@ func (e *Engine) RedactBytes(input []byte, context, reqID string) []byte {
 	// Stable replacement using a buffer and original offsets
 	var result []byte
 	lastIdx := 0
-
-	// Matches are sorted DESCENDING by Start position
-	// To build the string forward, we need them ASCENDING
-	sort.Slice(matches, func(i, j int) bool {
-		return matches[i].Start < matches[j].Start
-	})
 
 	for _, m := range matches {
 		// Skip if this match overlaps with the end of the previous replacement
