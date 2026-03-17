@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -31,6 +32,18 @@ type ONNXProvider struct {
 	outputTensor        *ort.Tensor[float32]
 }
 
+// getSharedLibName returns the platform-specific name of the ONNX Runtime library
+func getSharedLibName() string {
+	switch runtime.GOOS {
+	case "windows":
+		return "onnxruntime.dll"
+	case "darwin":
+		return "libonnxruntime.dylib"
+	default:
+		return "libonnxruntime.so"
+	}
+}
+
 // NewONNXProvider creates a new instance of the ONNXProvider
 func NewONNXProvider(modelPath, vocabPath, configPath, onnxURL, modelURL, vocabURL, configURL string, labels map[int]string) (*ONNXProvider, error) {
 	// 1. Bootstrap missing resources
@@ -40,13 +53,13 @@ func NewONNXProvider(modelPath, vocabPath, configPath, onnxURL, modelURL, vocabU
 
 	// 2. Initialize the ONNX Runtime library
 	if !ort.IsInitialized() {
-		libPath := "onnxruntime.dll"
-		absPath, err := filepath.Abs(libPath)
+		libName := getSharedLibName()
+		absPath, err := filepath.Abs(libName)
 		if err != nil {
-			return nil, fmt.Errorf("failed to get absolute path for %s: %v", libPath, err)
+			return nil, fmt.Errorf("failed to get absolute path for %s: %v", libName, err)
 		}
 		if _, err := os.Stat(absPath); os.IsNotExist(err) {
-			return nil, fmt.Errorf("onnxruntime.dll not found at %s", absPath)
+			return nil, fmt.Errorf("%s not found at %s", libName, absPath)
 		}
 		ort.SetSharedLibraryPath(absPath)
 		err = ort.InitializeEnvironment()

@@ -28,14 +28,14 @@ func BootstrapAll(cfg *config.Config) error {
 
 // BootstrapONNX checks for and downloads missing ONNX resources
 func BootstrapONNX(modelPath, vocabPath, configPath, onnxURL, modelURL, vocabURL, configURL string) error {
-	// 1. Check/Download onnxruntime.dll
-	dllPath := "onnxruntime.dll"
-	if _, err := os.Stat(dllPath); os.IsNotExist(err) {
-		log.Println("[Bootstrap] onnxruntime.dll missing. Starting download...")
-		if err := downloadAndExtractDLL(onnxURL, dllPath); err != nil {
-			return fmt.Errorf("failed to bootstrap onnxruntime.dll: %v", err)
+	// 1. Check/Download onnxruntime shared library
+	libName := getSharedLibName()
+	if _, err := os.Stat(libName); os.IsNotExist(err) {
+		log.Printf("[Bootstrap] %s missing. Starting download...", libName)
+		if err := downloadAndExtractDLL(onnxURL, libName); err != nil {
+			return fmt.Errorf("failed to bootstrap %s: %v", libName, err)
 		}
-		log.Println("[Bootstrap] onnxruntime.dll installed successfully.")
+		log.Printf("[Bootstrap] %s installed successfully.", libName)
 	}
 
 	// 2. Ensure models directory exists
@@ -116,10 +116,13 @@ func downloadAndExtractDLL(url, dest string) error {
 	}
 	defer r.Close()
 
-	// Find any file named onnxruntime.dll in the zip
+	// Find the shared library file in the zip
+	// Windows: onnxruntime.dll
+	// Linux: libonnxruntime.so
+	// MacOS: libonnxruntime.dylib
 	var found bool
 	for _, f := range r.File {
-		if strings.HasSuffix(f.Name, "/onnxruntime.dll") || f.Name == "onnxruntime.dll" {
+		if strings.HasSuffix(f.Name, "/"+dest) || f.Name == dest {
 			found = true
 			rc, err := f.Open()
 			if err != nil {
@@ -141,7 +144,7 @@ func downloadAndExtractDLL(url, dest string) error {
 	}
 
 	if !found {
-		return fmt.Errorf("onnxruntime.dll not found in zip archive")
+		return fmt.Errorf("%s not found in zip archive", dest)
 	}
 
 	return nil

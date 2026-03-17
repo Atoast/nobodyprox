@@ -21,34 +21,60 @@ const (
 )
 
 var (
+	// Base Colors
+	purple = lipgloss.Color("#7D56F4")
+	green  = lipgloss.Color("#04B575")
+	blue   = lipgloss.Color("#4A90E2")
+	gray   = lipgloss.Color("#888888")
+	dark   = lipgloss.Color("#3C3C3C")
+	white  = lipgloss.Color("#FAFAFA")
+
+	// Styles
 	titleStyle = lipgloss.NewStyle().
 			Bold(true).
-			Foreground(lipgloss.Color("#FAFAFA")).
-			Background(lipgloss.Color("#7D56F4")).
+			Foreground(white).
+			Background(purple).
 			Padding(0, 1)
 
 	statStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#04B575")).
+			Foreground(green).
 			Bold(true)
 
 	logStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#888888"))
+			Foreground(gray)
 
 	infoStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#3C3C3C")).
+			Foreground(dark).
 			Italic(true)
 
+	viewportStyle = lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(purple).
+			Padding(0, 1)
+
 	builderOutputStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("#4A90E2")).
+				Foreground(blue).
 				Bold(true)
 	
 	builderInputLineStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("#7D56F4"))
+				Foreground(purple).
+				Bold(true)
+
+	helpStyle = lipgloss.NewStyle().
+			Foreground(dark)
+
+	legendStyle = lipgloss.NewStyle().
+			Border(lipgloss.NormalBorder(), false, false, false, true).
+			BorderForeground(purple).
+			PaddingLeft(1).
+			MarginLeft(1)
 )
 
 type model struct {
 	mode            viewMode
 	ready           bool
+	width           int
+	height          int
 	viewport        viewport.Model
 	builderViewport viewport.Model
 	textInput       textinput.Model
@@ -135,13 +161,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				tagged := m.engine.DebugRedact(input)
 				
 				// 2. Final Result (Actually applied rules)
-				// We use a dummy reqID and context for the test
 				redacted := m.engine.Redact(input, "TEST", "BUILDER")
 				
 				// Add to builder history
 				m.addBuilderLog(fmt.Sprintf("> %s", input), m.builderViewport.Width)
-				m.addBuilderLog(lipgloss.NewStyle().Foreground(lipgloss.Color("#888888")).Render("  TAGGED:  ")+builderOutputStyle.Render(tagged), m.builderViewport.Width)
-				m.addBuilderLog(lipgloss.NewStyle().Foreground(lipgloss.Color("#888888")).Render("  REDACTED: ")+lipgloss.NewStyle().Foreground(lipgloss.Color("#04B575")).Render(redacted), m.builderViewport.Width)
+				m.addBuilderLog(lipgloss.NewStyle().Foreground(gray).Render("  TAGGED:   ")+builderOutputStyle.Render(tagged), m.builderViewport.Width)
+				m.addBuilderLog(lipgloss.NewStyle().Foreground(gray).Render("  REDACTED: ")+lipgloss.NewStyle().Foreground(green).Render(redacted), m.builderViewport.Width)
 				m.addBuilderLog("", m.builderViewport.Width) // Spacer
 				
 				m.textInput.Reset()
@@ -162,26 +187,29 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmds = append(cmds, waitForEvent(m.events))
 
 	case tea.WindowSizeMsg:
+		m.width = msg.Width
+		m.height = msg.Height
+		
 		headerHeight := 4
-		footerHeight := 3
+		footerHeight := 4
 		verticalMarginHeight := headerHeight + footerHeight
 
 		if !m.ready {
-			m.viewport = viewport.New(msg.Width, msg.Height-verticalMarginHeight)
+			m.viewport = viewport.New(msg.Width-4, msg.Height-verticalMarginHeight-2)
 			m.viewport.SetContent("Waiting for traffic...")
 			
-			m.builderViewport = viewport.New(msg.Width, msg.Height-verticalMarginHeight-4) // -4 for input area
+			m.builderViewport = viewport.New(msg.Width-4, msg.Height-verticalMarginHeight-6)
 			m.builderViewport.SetContent("Rule Builder: Type a string and press Enter to test tagging.")
 			
 			m.ready = true
 		} else {
-			m.viewport.Width = msg.Width
-			m.viewport.Height = msg.Height-verticalMarginHeight
+			m.viewport.Width = msg.Width - 4
+			m.viewport.Height = msg.Height - verticalMarginHeight - 2
 			
-			m.builderViewport.Width = msg.Width
-			m.builderViewport.Height = msg.Height-verticalMarginHeight-4
+			m.builderViewport.Width = msg.Width - 4
+			m.builderViewport.Height = msg.Height - verticalMarginHeight - 6
 		}
-		m.textInput.Width = msg.Width - 5
+		m.textInput.Width = msg.Width - 15
 	}
 
 	if m.mode == modeBuilder {
@@ -281,11 +309,11 @@ func (m model) dashboardView() string {
 		infoStyle.Render(fmt.Sprintf("Labels: %s", strings.Join(m.availableLabels, ", "))),
 	)
 
-	footer := "\n [tab] Rule Builder  [w] Toggle Watch  [q] Quit"
+	footer := helpStyle.Render(" [tab] Switch to Rule Builder  [w] Toggle Watch  [q] Quit")
 
 	return fmt.Sprintf("%s\n\n%s\n\n%s\n%s", 
 		header, 
-		m.viewport.View(), 
+		viewportStyle.Render(m.viewport.View()), 
 		status,
 		footer)
 }
@@ -293,15 +321,25 @@ func (m model) dashboardView() string {
 func (m model) builderView() string {
 	header := titleStyle.Render("NobodyProx Rule Builder")
 	
+	legend := legendStyle.Render(
+		lipgloss.JoinVertical(lipgloss.Left,
+			"How to read results:",
+			builderOutputStyle.Render("TAGGED:   ")+"Raw model findings (e.g. <PERSON:Alice>)",
+			lipgloss.NewStyle().Foreground(green).Render("REDACTED: ")+"Result after applying your custom rules",
+		),
+	)
+
 	status := infoStyle.Render(fmt.Sprintf("Active Labels: %s", strings.Join(m.availableLabels, ", ")))
 	
-	footer := "\n [tab] Dashboard  [q] Quit"
+	footer := helpStyle.Render(" [tab] Back to Dashboard  [q] Quit")
 
-	// Layout the builder: Header -> Output Viewport -> Input Field -> Status -> Footer
-	return fmt.Sprintf("%s\n\n%s\n\n%s\n\n%s\n%s", 
+	inputArea := builderInputLineStyle.Render("Input: ") + m.textInput.View()
+
+	return fmt.Sprintf("%s\n\n%s\n\n%s\n\n%s\n\n%s\n%s", 
 		header, 
-		m.builderViewport.View(), 
-		builderInputLineStyle.Render("Input: ")+m.textInput.View(),
+		viewportStyle.Render(m.builderViewport.View()), 
+		inputArea,
+		legend,
 		status,
 		footer)
 }
