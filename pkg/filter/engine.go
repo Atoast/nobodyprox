@@ -70,6 +70,37 @@ func NewEngine(rules []config.Rule, ner NERProvider, watchMode bool) (*Engine, e
 	}, nil
 }
 
+// isInsidePlaceholder checks if the given byte range is part of an existing placeholder or structural JSON
+func (e *Engine) isInsidePlaceholder(input []byte, start, end int) bool {
+	s := string(input)
+	
+	// 1. Check if we are inside brackets [ ... ]
+	// We look for the most immediate brackets surrounding this range
+	lastOpen := strings.LastIndex(s[:start+1], "[")
+	if lastOpen != -1 {
+		nextClose := strings.Index(s[lastOpen:], "]")
+		if nextClose != -1 {
+			nextClose += lastOpen
+			if start >= lastOpen && end <= nextClose+1 {
+				content := s[lastOpen+1 : nextClose]
+				// If it's our placeholder format
+				if strings.HasPrefix(content, "REDACTED: ") || (strings.Contains(content, "_") && len(content)-strings.LastIndex(content, "_")-1 == 8) {
+					return true
+				}
+			}
+		}
+	}
+
+	// 2. Check if we are redacting part of a JSON escape sequence or key
+	// If the text contains \u or is part of a key
+	raw := s[start:end]
+	if strings.Contains(raw, "\\u") || strings.ContainsAny(raw, "{}\":") {
+		return true
+	}
+
+	return false
+}
+
 // Redact applies all rules (redaction or pseudonymization) to the input string
 func (e *Engine) Redact(input, context, reqID string) string {
 	if e == nil {
@@ -160,6 +191,11 @@ func (e *Engine) RedactBytes(input []byte, context, reqID string) []byte {
 					continue
 				}
 
+				// Guard against recursive redaction or structural damage
+				if e.isInsidePlaceholder(input, ent.Start, ent.End) {
+					continue
+				}
+
 				// If in WatchMode, log EVERYTHING found by NER to help author rules
 				if e.WatchMode {
 					log.Printf("[%s][%s][WATCH] Found NER %s: %s", reqID, context, ent.Type, ent.Text)
@@ -237,11 +273,16 @@ func (e *Engine) RedactBytes(input []byte, context, reqID string) []byte {
 		}
 
 		locs := rule.Regex.FindAllIndex(input, -1)
-		if len(locs) > 0 {
+		if len(locs) > 0 && !e.WatchMode {
 			log.Printf("[%s][%s] Rule %s found %d matches", reqID, context, rule.Name, len(locs))
 		}
 
 		for _, loc := range locs {
+			// Guard against recursive redaction or structural damage
+			if e.isInsidePlaceholder(input, loc[0], loc[1]) {
+				continue
+			}
+
 			val := string(input[loc[0]:loc[1]])
 			replacement := rule.Replacement
 			action := rule.Action

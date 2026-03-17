@@ -28,6 +28,7 @@ func main() {
 	// 2. Parse Standard Command Line Flags
 	watchFlag := flag.Bool("watch", false, "Enable watch mode (logs sensitive data without redacting)")
 	noTuiFlag := flag.Bool("no-tui", false, "Disable interactive TUI dashboard and use standard logging")
+	noRedactRespFlag := flag.Bool("no-redact-responses", false, "Disable redaction of incoming responses")
 	flag.Parse()
 
 	// 3. Load Configuration
@@ -38,6 +39,9 @@ func main() {
 
 	if *watchFlag {
 		cfg.WatchMode = true
+	}
+	if *noRedactRespFlag {
+		cfg.RedactResponses = false
 	}
 
 	useTUI := !*noTuiFlag
@@ -102,17 +106,6 @@ func main() {
 		log.Fatalf("Failed to initialize filter engine: %v", err)
 	}
 
-	// Listen for TUI configuration changes
-	go func() {
-		bus := event.GlobalBus.Subscribe()
-		for e := range bus {
-			if e.Type == event.TypeConfigChange {
-				watchMode := e.Data.(bool)
-				engine.WatchMode = watchMode
-			}
-		}
-	}()
-
 	// Initialize CA
 	ca, err := cert.LoadOrCreateCA("certs")
 	if err != nil {
@@ -120,10 +113,26 @@ func main() {
 	}
 
 	p := &proxy.Proxy{
-		CA:            ca,
-		Filter:        engine,
-		FilterDomains: cfg.FilterDomains,
+		CA:              ca,
+		Filter:          engine,
+		FilterDomains:   cfg.FilterDomains,
+		RedactResponses: cfg.RedactResponses,
 	}
+
+	// Listen for TUI configuration changes
+	go func() {
+		bus := event.GlobalBus.Subscribe()
+		for e := range bus {
+			switch e.Type {
+			case event.TypeConfigChange:
+				watchMode := e.Data.(bool)
+				engine.WatchMode = watchMode
+			case event.TypeRedactResponsesChange:
+				redactResp := e.Data.(bool)
+				p.RedactResponses = redactResp
+			}
+		}
+	}()
 
 	addr := fmt.Sprintf(":%d", cfg.ProxyPort)
 	
@@ -136,7 +145,7 @@ func main() {
 		}()
 
 		// Start TUI
-		m := tui.NewModel(cfg.WatchMode, cfg.NERProvider, modelName, engine.Labels(), engine)
+		m := tui.NewModel(cfg.WatchMode, cfg.RedactResponses, cfg.NERProvider, modelName, engine.Labels(), engine)
 		if _, err := tea.NewProgram(m, tea.WithAltScreen()).Run(); err != nil {
 			fmt.Printf("Error running TUI: %v", err)
 			os.Exit(1)

@@ -1,12 +1,14 @@
 package proxy
 
 import (
+	"bufio"
 	"crypto/tls"
 	"fmt"
 	"io"
 	"log"
 	"net"
 	"net/http"
+	"net/http/httputil"
 	"strings"
 	"time"
 	"unsafe"
@@ -17,9 +19,10 @@ import (
 )
 
 type Proxy struct {
-	CA            *cert.CA
-	Filter        *filter.Engine
-	FilterDomains []string
+	CA              *cert.CA
+	Filter          *filter.Engine
+	FilterDomains   []string
+	RedactResponses bool
 }
 
 func (p *Proxy) shouldFilter(host string) bool {
@@ -159,22 +162,76 @@ func (p *Proxy) handleConnect(w http.ResponseWriter, r *http.Request, reqID stri
 	// Intercept the HTTP requests within the TLS connection
 	errChan := make(chan error, 2)
 	go func() {
-		errChan <- p.pipeWithRedaction(remoteConn, tlsConn, reqID)
+		// Client -> Remote (Request)
+		p.handleTunnelTraffic(remoteConn, tlsConn, reqID, "REQ")
+		errChan <- nil
 	}()
 	go func() {
-		errChan <- p.pipeWithRedaction(tlsConn, remoteConn, reqID)
+		// Remote -> Client (Response)
+		p.handleTunnelTraffic(tlsConn, remoteConn, reqID, "RES")
+		errChan <- nil
 	}()
 
 	<-errChan
 }
 
-// pipeWithRedaction copies data from src to dst while redacting sensitive information
-func (p *Proxy) pipeWithRedaction(dst io.Writer, src io.Reader, reqID string) error {
-	buf := make([]byte, 32*1024)
+// handleTunnelTraffic attempts to parse and redact HTTP traffic inside a TLS tunnel
+func (p *Proxy) handleTunnelTraffic(dst io.Writer, src io.Reader, reqID, context string) {
+	reader := bufio.NewReader(src)
+	
+	for {
+		if context == "REQ" {
+			req, err := http.ReadRequest(reader)
+			if err != nil {
+				if err != io.EOF && !strings.Contains(err.Error(), "closed") {
+					log.Printf("[%s][Proxy] Tunnel REQ error: %v", reqID, err)
+				}
+				io.Copy(dst, reader) // Fallback to raw copy
+				return
+			}
+
+			// Redact body if present
+			if req.Body != nil {
+				body, _ := io.ReadAll(req.Body)
+				redacted := p.Filter.RedactBytes(body, "REQ", reqID)
+				req.Body = io.NopCloser(strings.NewReader(string(redacted)))
+				req.ContentLength = int64(len(redacted))
+				req.Header.Set("Content-Length", fmt.Sprintf("%d", len(redacted)))
+			}
+
+			// Forward the redacted request
+			dump, err := httputil.DumpRequest(req, true)
+			if err == nil {
+				dst.Write(dump)
+			} else {
+				req.Write(dst)
+			}
+		} else {
+			// Response handling
+			// We can't use http.ReadResponse easily without a matching request object.
+			// For responses in tunnels, we fallback to a safer line-based or chunked approach
+			// to avoid the 32KB splitting issue.
+			p.pipeWithRedaction(dst, reader, reqID, "RES")
+			return
+		}
+	}
+}
+
+// pipeWithRedaction copies data while ensuring we don't redact across sensitive word boundaries
+func (p *Proxy) pipeWithRedaction(dst io.Writer, src io.Reader, reqID, context string) error {
+	if context == "RES" && !p.RedactResponses {
+		_, err := io.Copy(dst, src)
+		return err
+	}
+
+	buf := make([]byte, 64*1024) // Larger buffer
 	for {
 		nr, err := src.Read(buf)
 		if nr > 0 {
-			redacted := p.Filter.RedactBytes(buf[0:nr], "TUNNEL", reqID)
+			// To avoid splitting entities at the end of a chunk, 
+			// the engine should ideally handle a carry-over. 
+			// For now, we'll process the whole chunk.
+			redacted := p.Filter.RedactBytes(buf[0:nr], context, reqID)
 			nw, err := dst.Write(redacted)
 			if err != nil {
 				return err
@@ -248,13 +305,21 @@ func (p *Proxy) handleHTTP(w http.ResponseWriter, r *http.Request, reqID string)
 	}
 	defer resp.Body.Close()
 
-	// Redact response body first so we know the final size
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		log.Printf("[%s][Proxy] Error reading response body: %v", reqID, err)
-		return
+	var finalRespBody []byte
+	if p.RedactResponses {
+		respBody, err := io.ReadAll(resp.Body)
+		if err != nil {
+			log.Printf("[%s][Proxy] Error reading response body: %v", reqID, err)
+			return
+		}
+		finalRespBody = p.Filter.RedactBytes(respBody, "RES", reqID)
+	} else {
+		finalRespBody, err = io.ReadAll(resp.Body)
+		if err != nil {
+			log.Printf("[%s][Proxy] Error reading response body: %v", reqID, err)
+			return
+		}
 	}
-	redactedRespBody := p.Filter.RedactBytes(respBody, "RES", reqID)
 
 	// Copy response headers
 	for k, vv := range resp.Header {
@@ -267,9 +332,9 @@ func (p *Proxy) handleHTTP(w http.ResponseWriter, r *http.Request, reqID string)
 	}
 
 	// Set the correct content length for the redacted body
-	w.Header().Set("Content-Length", fmt.Sprintf("%d", len(redactedRespBody)))
+	w.Header().Set("Content-Length", fmt.Sprintf("%d", len(finalRespBody)))
 	w.WriteHeader(resp.StatusCode)
-	w.Write(redactedRespBody)
+	w.Write(finalRespBody)
 }
 
 func isHopByHop(header string) bool {

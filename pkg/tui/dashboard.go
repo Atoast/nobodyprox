@@ -84,13 +84,15 @@ type model struct {
 	totalRequests   int
 	totalRedactions int
 	watchMode       bool
+	redactResponses bool
 	provider        string
 	modelName       string
 	availableLabels []string
 	events          chan event.Event
+	builderResult   string
 }
 
-func NewModel(watchMode bool, provider, modelName string, labels []string, engine *filter.Engine) model {
+func NewModel(watchMode, redactResponses bool, provider, modelName string, labels []string, engine *filter.Engine) model {
 	ti := textinput.New()
 	ti.Placeholder = "Type text to test rules and press Enter..."
 	ti.Focus()
@@ -104,6 +106,7 @@ func NewModel(watchMode bool, provider, modelName string, labels []string, engin
 		textInput:       ti,
 		engine:          engine,
 		watchMode:       watchMode,
+		redactResponses: redactResponses,
 		provider:        provider,
 		modelName:       modelName,
 		availableLabels: labels,
@@ -151,6 +154,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				event.GlobalBus.Publish(event.Event{
 					Type: event.TypeConfigChange,
 					Data: m.watchMode,
+				})
+			}
+		case "r":
+			if m.mode == modeDashboard {
+				m.redactResponses = !m.redactResponses
+				event.GlobalBus.Publish(event.Event{
+					Type: event.TypeRedactResponsesChange,
+					Data: m.redactResponses,
 				})
 			}
 		case "enter":
@@ -299,6 +310,8 @@ func (m model) dashboardView() string {
 		statStyle.Render(fmt.Sprintf("Redactions: %d", m.totalRedactions)),
 		"  ",
 		fmt.Sprintf("Mode: %s", getModeName(m.watchMode)),
+		"  ",
+		fmt.Sprintf("Response Filter: %s", getOnOff(m.redactResponses)),
 	)
 
 	status := lipgloss.JoinHorizontal(lipgloss.Top,
@@ -309,7 +322,7 @@ func (m model) dashboardView() string {
 		infoStyle.Render(fmt.Sprintf("Labels: %s", strings.Join(m.availableLabels, ", "))),
 	)
 
-	footer := helpStyle.Render(" [tab] Switch to Rule Builder  [w] Toggle Watch  [q] Quit")
+	footer := helpStyle.Render(" [tab] Rule Builder  [w] Watch  [r] Resp Redact  [q] Quit")
 
 	return fmt.Sprintf("%s\n\n%s\n\n%s\n%s", 
 		header, 
@@ -349,6 +362,13 @@ func getModeName(watch bool) string {
 		return "WATCH (Audit)"
 	}
 	return "FILTERING (Active)"
+}
+
+func getOnOff(on bool) string {
+	if on {
+		return "ON"
+	}
+	return "OFF"
 }
 
 func Start() error {

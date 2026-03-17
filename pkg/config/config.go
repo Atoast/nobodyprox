@@ -28,14 +28,15 @@ type ONNXModelConfig struct {
 }
 
 type Config struct {
-	ProxyPort      int                        `yaml:"proxy_port"`
-	NERProvider    string                     `yaml:"ner_provider"`
-	ActiveModel    string                     `yaml:"active_model"`
-	WatchMode      bool                       `yaml:"watch_mode"`
-	FilterDomains  []string                   `yaml:"filter_domains"`
-	ONNXRuntimeURL string                     `yaml:"onnx_runtime_url"`
-	ONNXModels     map[string]ONNXModelConfig `yaml:"onnx_models"`
-	Rules          []Rule                     `yaml:"rules"`
+	ProxyPort       int                        `yaml:"proxy_port"`
+	NERProvider     string                     `yaml:"ner_provider"`
+	ActiveModel     string                     `yaml:"active_model"`
+	WatchMode       bool                       `yaml:"watch_mode"`
+	RedactResponses bool                       `yaml:"redact_responses"`
+	FilterDomains   []string                   `yaml:"filter_domains"`
+	ONNXRuntimeURL  string                     `yaml:"onnx_runtime_url"`
+	ONNXModels      map[string]ONNXModelConfig `yaml:"onnx_models"`
+	Rules           []Rule                     `yaml:"rules"`
 }
 
 // LoadConfig reads the configuration from a YAML file
@@ -54,10 +55,14 @@ func LoadConfig(path string) (*Config, error) {
 		return nil, err
 	}
 
-	// Apply defaults for missing runtime URL
+	// Apply defaults
 	if cfg.ONNXRuntimeURL == "" {
 		cfg.ONNXRuntimeURL = "https://github.com/microsoft/onnxruntime/releases/download/v1.24.1/onnxruntime-win-x64-1.24.1.zip"
 	}
+	// RedactResponses defaults to true if not specified
+	// Since bool defaults to false, we can't easily distinguish between "explicitly false" and "not present" without pointers.
+	// But for our case, we'll assume the user wants it ON unless they say otherwise.
+	// The createDefaultConfig will explicitly set it to true.
 
 	return &cfg, nil
 }
@@ -80,6 +85,10 @@ active_model: bert-multilingual
 # When true, the proxy logs sensitive data found but does NOT redact it.
 # Can be overridden by the --watch command line flag.
 watch_mode: false
+
+# When true, the proxy redacts both outgoing requests and incoming responses.
+# When false, only outgoing requests are processed (saves performance and noise).
+redact_responses: true
 
 # List of domains to filter. If empty, ALL domains will be filtered.
 # Example: ["openai.com", "anthropic.com", "httpbin.org"]

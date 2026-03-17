@@ -12,6 +12,8 @@ const (
 	TypeRequestEnd
 	TypeDetection
 	TypeConfigChange
+	TypeRedactResponsesChange
+	TypeDebugBody
 )
 
 type Event struct {

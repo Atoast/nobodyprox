@@ -14,7 +14,9 @@
 ## 3. UI & Interaction
 - **TUI-First**: The application launches the interactive dashboard by default. Standard CLI logging is available via the `--no-tui` flag.
 - **Rule Builder**: Press `[tab]` in the TUI to access the interactive Rule Builder for live testing of PII patterns without making network requests.
-- **Task-Based Planning**: Every major feature or session should begin with a clear list of tasks/todos in the plan. Progress should be tracked against these tasks to ensure completeness and transparency.
+- **Task-Based Planning**: Every major feature or session should begin with a clear list of tasks/todos in the plan.
+- **Atomic Workflow**: Tasks must be completed one at a time. Each task should result in a single, focused commit after user verification.
+- **Verification Mandate**: No changes shall be committed to the repository until the user has empirically verified the implementation.
 
 ## 4. Scandinavian Focus
 - Priority is given to high-accuracy Danish and Scandinavian NER support (currently using the `mmbert-scandi` configuration).
