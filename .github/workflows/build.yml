@@ -1,4 +1,4 @@
-name: Go Build
+name: CI/CD Pipeline
 
 on:
   push:
@@ -13,6 +13,13 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest, windows-latest]
+        include:
+          - os: ubuntu-latest
+            platform: linux
+            ext: ""
+          - os: windows-latest
+            platform: win
+            ext: ".exe"
 
     steps:
     - name: Checkout code
@@ -24,15 +31,58 @@ jobs:
         go-version: '1.24'
 
     - name: Install dependencies (Linux)
-      if: matrix.os == 'ubuntu-latest'
+      if: matrix.platform == 'linux'
       run: |
         sudo apt-get update
         sudo apt-get install -y gcc libonnxruntime-dev || true
-        # Note: libonnxruntime-dev might not be in standard repos, 
-        # but we'll try to build anyway as the Go library uses runtime loading.
 
     - name: Build
-      run: go build -v ./...
+      shell: bash
+      run: |
+        BIN_NAME="nobodyprox-x86-${{ matrix.platform }}${{ matrix.ext }}"
+        go build -o $BIN_NAME ./cmd/main.go
+        echo "BIN_NAME=$BIN_NAME" >> $GITHUB_ENV
 
     - name: Test
       run: go test -v ./pkg/...
+
+    - name: Upload Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: binary-${{ matrix.platform }}
+        path: ${{ env.BIN_NAME }}
+
+  release:
+    name: Create Pre-Release
+    needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0 # Necessary for release notes
+
+    - name: Get commit timestamp
+      id: get_timestamp
+      run: echo "timestamp=$(git show -s --format=%ct HEAD)" >> $GITHUB_ENV
+
+    - name: Download all artifacts
+      uses: actions/download-artifact@v4
+      with:
+        path: artifacts
+        pattern: binary-*
+        merge-multiple: true
+
+    - name: Create Pre-Release
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: v${{ env.timestamp }}
+        name: Release v${{ env.timestamp }}
+        prerelease: true
+        generate_release_notes: true
+        files: artifacts/*
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
