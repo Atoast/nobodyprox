@@ -412,3 +412,32 @@ func (e *Engine) Labels() []string {
 	}
 	return e.NER.Labels()
 }
+
+// UpdateRules re-initializes the engine's ruleset live
+func (e *Engine) UpdateRules(newRules []config.Rule) error {
+	for i := range newRules {
+		if newRules[i].Pattern != "" {
+			re, err := regexp.Compile(newRules[i].Pattern)
+			if err != nil {
+				return err
+			}
+			newRules[i].Regex = re
+		}
+		
+		if newRules[i].Action == "" {
+			newRules[i].Action = string(ActionRedact)
+		}
+		if newRules[i].Replacement == "" && newRules[i].Action == string(ActionRedact) {
+			if newRules[i].EntityType != "" {
+				newRules[i].Replacement = "[REDACTED: " + newRules[i].EntityType + "]"
+			} else {
+				newRules[i].Replacement = "[REDACTED: " + newRules[i].Name + "]"
+			}
+		}
+	}
+
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.Rules = newRules
+	return nil
+}

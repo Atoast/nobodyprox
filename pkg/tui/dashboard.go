@@ -9,6 +9,7 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/nobodyprox/nobodyprox/pkg/config"
 	"github.com/nobodyprox/nobodyprox/pkg/event"
 	"github.com/nobodyprox/nobodyprox/pkg/filter"
 )
@@ -17,7 +18,7 @@ type viewMode int
 
 const (
 	modeDashboard viewMode = iota
-	modeBuilder
+	modeCombined
 )
 
 var (
@@ -66,8 +67,11 @@ var (
 	legendStyle = lipgloss.NewStyle().
 			Border(lipgloss.NormalBorder(), false, false, false, true).
 			BorderForeground(purple).
-			PaddingLeft(1).
-			MarginLeft(1)
+			PaddingLeft(1)
+
+	selectedStyle = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(purple)
 )
 
 type model struct {
@@ -89,7 +93,10 @@ type model struct {
 	modelName       string
 	availableLabels []string
 	events          chan event.Event
-	builderResult   string
+	
+	// Rules Editor State
+	rules           []config.Rule
+	selectedRuleIdx int
 }
 
 func NewModel(watchMode, redactResponses bool, provider, modelName string, labels []string, engine *filter.Engine) model {
@@ -98,6 +105,10 @@ func NewModel(watchMode, redactResponses bool, provider, modelName string, label
 	ti.Focus()
 	ti.CharLimit = 512
 	ti.Width = 60
+
+	// Get initial rules from engine
+	rules := make([]config.Rule, len(engine.Rules))
+	copy(rules, engine.Rules)
 
 	return model{
 		mode:            modeDashboard,
@@ -111,6 +122,7 @@ func NewModel(watchMode, redactResponses bool, provider, modelName string, label
 		modelName:       modelName,
 		availableLabels: labels,
 		events:          event.GlobalBus.Subscribe(),
+		rules:           rules,
 	}
 }
 
@@ -142,7 +154,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 		case "tab":
 			if m.mode == modeDashboard {
-				m.mode = modeBuilder
+				m.mode = modeCombined
 				m.textInput.Focus()
 			} else {
 				m.mode = modeDashboard
@@ -164,23 +176,52 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					Data: m.redactResponses,
 				})
 			}
+		
+		// Key handling for Combined View
+		case "up":
+			if m.mode == modeCombined && m.selectedRuleIdx > 0 {
+				m.selectedRuleIdx--
+				return m, nil
+			}
+		case "down":
+			if m.mode == modeCombined && m.selectedRuleIdx < len(m.rules)-1 {
+				m.selectedRuleIdx++
+				return m, nil
+			}
+		case "a":
+			if m.mode == modeCombined && len(m.rules) > 0 {
+				rule := &m.rules[m.selectedRuleIdx]
+				if rule.Action == "REDACT" {
+					rule.Action = "PSEUDONYMIZE"
+				} else {
+					rule.Action = "REDACT"
+				}
+				rule.Replacement = "" 
+				m.engine.UpdateRules(m.rules)
+				
+				// Persist to config.yaml
+				// We need the full config object, but for now we can update the rules in a fresh load
+				if cfg, err := config.LoadConfig("config.yaml"); err == nil {
+					cfg.Rules = m.rules
+					config.SaveConfig("config.yaml", cfg)
+				}
+				
+				return m, nil
+			}
+
 		case "enter":
-			if m.mode == modeBuilder && m.textInput.Value() != "" {
+			if m.mode == modeCombined && m.textInput.Value() != "" {
 				input := m.textInput.Value()
-				
-				// 1. Tagged Result (Debug)
 				tagged := m.engine.DebugRedact(input)
-				
-				// 2. Final Result (Actually applied rules)
 				redacted := m.engine.Redact(input, "TEST", "BUILDER")
 				
-				// Add to builder history
 				m.addBuilderLog(fmt.Sprintf("> %s", input), m.builderViewport.Width)
 				m.addBuilderLog(lipgloss.NewStyle().Foreground(gray).Render("  TAGGED:   ")+builderOutputStyle.Render(tagged), m.builderViewport.Width)
 				m.addBuilderLog(lipgloss.NewStyle().Foreground(gray).Render("  REDACTED: ")+lipgloss.NewStyle().Foreground(green).Render(redacted), m.builderViewport.Width)
-				m.addBuilderLog("", m.builderViewport.Width) // Spacer
+				m.addBuilderLog("", m.builderViewport.Width)
 				
 				m.textInput.Reset()
+				return m, nil
 			}
 		}
 
@@ -209,21 +250,22 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.viewport = viewport.New(msg.Width-4, msg.Height-verticalMarginHeight-2)
 			m.viewport.SetContent("Waiting for traffic...")
 			
-			m.builderViewport = viewport.New(msg.Width-4, msg.Height-verticalMarginHeight-6)
-			m.builderViewport.SetContent("Rule Builder: Type a string and press Enter to test tagging.")
+			// Builder viewport takes ~60% of width
+			m.builderViewport = viewport.New(int(float64(msg.Width)*0.6), msg.Height-verticalMarginHeight-6)
+			m.builderViewport.SetContent("Rule Builder: Type and press Enter.")
 			
 			m.ready = true
 		} else {
 			m.viewport.Width = msg.Width - 4
 			m.viewport.Height = msg.Height - verticalMarginHeight - 2
 			
-			m.builderViewport.Width = msg.Width - 4
+			m.builderViewport.Width = int(float64(msg.Width)*0.6)
 			m.builderViewport.Height = msg.Height - verticalMarginHeight - 6
 		}
-		m.textInput.Width = msg.Width - 15
+		m.textInput.Width = m.builderViewport.Width - 10
 	}
 
-	if m.mode == modeBuilder {
+	if m.mode == modeCombined {
 		m.textInput, cmd = m.textInput.Update(msg)
 		cmds = append(cmds, cmd)
 		m.builderViewport, cmd = m.builderViewport.Update(msg)
@@ -295,8 +337,8 @@ func (m model) View() string {
 		return "\n  Initializing Dashboard..."
 	}
 
-	if m.mode == modeBuilder {
-		return m.builderView()
+	if m.mode == modeCombined {
+		return m.combinedView()
 	}
 	return m.dashboardView()
 }
@@ -322,7 +364,7 @@ func (m model) dashboardView() string {
 		infoStyle.Render(fmt.Sprintf("Labels: %s", strings.Join(m.availableLabels, ", "))),
 	)
 
-	footer := helpStyle.Render(" [tab] Rule Builder  [w] Watch  [r] Resp Redact  [q] Quit")
+	footer := helpStyle.Render(" [tab] Rule Center  [w] Watch  [r] Resp Redact  [q] Quit")
 
 	return fmt.Sprintf("%s\n\n%s\n\n%s\n%s", 
 		header, 
@@ -331,28 +373,55 @@ func (m model) dashboardView() string {
 		footer)
 }
 
-func (m model) builderView() string {
-	header := titleStyle.Render("NobodyProx Rule Builder")
+func (m model) combinedView() string {
+	header := titleStyle.Render("NobodyProx Rule Center")
+	
+	// Determine shared height for both containers
+	sharedHeight := m.builderViewport.Height
+
+	// --- Left Side: Builder ---
+	leftWidth := int(float64(m.width) * 0.6)
+	builderView := viewportStyle.Width(leftWidth).Height(sharedHeight).Render(m.builderViewport.View())
+	inputArea := "\n" + builderInputLineStyle.Render(" Input: ") + m.textInput.View()
 	
 	legend := legendStyle.Render(
 		lipgloss.JoinVertical(lipgloss.Left,
-			"How to read results:",
-			builderOutputStyle.Render("TAGGED:   ")+"Raw model findings (e.g. <PERSON:Alice>)",
-			lipgloss.NewStyle().Foreground(green).Render("REDACTED: ")+"Result after applying your custom rules",
+			builderOutputStyle.Render("TAGGED:   ")+"Raw model findings",
+			lipgloss.NewStyle().Foreground(green).Render("REDACTED: ")+"Result after rules",
 		),
 	)
-
-	status := infoStyle.Render(fmt.Sprintf("Active Labels: %s", strings.Join(m.availableLabels, ", ")))
 	
-	footer := helpStyle.Render(" [tab] Back to Dashboard  [q] Quit")
+	leftSide := lipgloss.JoinVertical(lipgloss.Left, builderView, inputArea, legend)
 
-	inputArea := builderInputLineStyle.Render("Input: ") + m.textInput.View()
+	// --- Right Side: Rules Editor ---
+	rightWidth := m.width - leftWidth - 10
+	var rb strings.Builder
+	for i, rule := range m.rules {
+		pref := "  "
+		style := logStyle
+		if i == m.selectedRuleIdx {
+			pref = "> "
+			style = selectedStyle
+		}
+		
+		line := fmt.Sprintf("%s%-12s | %s", pref, rule.Name, rule.Action)
+		rb.WriteString(style.Render(line) + "\n")
+	}
+	
+	rightSide := viewportStyle.
+		Width(rightWidth).
+		Height(sharedHeight).
+		Render(lipgloss.JoinVertical(lipgloss.Left, "Active Rules:\n", rb.String()))
 
-	return fmt.Sprintf("%s\n\n%s\n\n%s\n\n%s\n\n%s\n%s", 
+	// --- Layout ---
+	mainContent := lipgloss.JoinHorizontal(lipgloss.Top, leftSide, rightSide)
+	
+	status := infoStyle.Render(fmt.Sprintf("Active Labels: %s", strings.Join(m.availableLabels, ", ")))
+	footer := helpStyle.Render(" [tab] Dashboard  [up/down] Select Rule  [a] Toggle Action  [q] Quit")
+
+	return fmt.Sprintf("%s\n\n%s\n\n%s\n%s", 
 		header, 
-		viewportStyle.Render(m.builderViewport.View()), 
-		inputArea,
-		legend,
+		mainContent,
 		status,
 		footer)
 }

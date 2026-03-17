@@ -59,12 +59,21 @@ func LoadConfig(path string) (*Config, error) {
 	if cfg.ONNXRuntimeURL == "" {
 		cfg.ONNXRuntimeURL = "https://github.com/microsoft/onnxruntime/releases/download/v1.24.1/onnxruntime-win-x64-1.24.1.zip"
 	}
-	// RedactResponses defaults to true if not specified
-	// Since bool defaults to false, we can't easily distinguish between "explicitly false" and "not present" without pointers.
-	// But for our case, we'll assume the user wants it ON unless they say otherwise.
-	// The createDefaultConfig will explicitly set it to true.
 
 	return &cfg, nil
+}
+
+// SaveConfig writes the configuration back to the YAML file
+func SaveConfig(path string, cfg *Config) error {
+	f, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	encoder := yaml.NewEncoder(f)
+	encoder.SetIndent(4)
+	return encoder.Encode(cfg)
 }
 
 func createDefaultConfig(path string) (*Config, error) {
