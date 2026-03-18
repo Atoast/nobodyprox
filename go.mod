@@ -7,6 +7,7 @@ require (
 	github.com/charmbracelet/bubbletea v1.3.10
 	github.com/charmbracelet/lipgloss v1.1.0
 	github.com/jdkato/prose/v2 v2.0.0
+	github.com/muesli/reflow v0.3.0
 	github.com/sugarme/tokenizer v0.3.0
 	github.com/yalue/onnxruntime_go v1.27.0
 	gopkg.in/yaml.v3 v3.0.1
@@ -33,7 +34,6 @@ require (
 	github.com/mitchellh/colorstring v0.0.0-20190213212951-d06e56a500db // indirect
 	github.com/muesli/ansi v0.0.0-20230316100256-276c6243b2f6 // indirect
 	github.com/muesli/cancelreader v0.2.2 // indirect
-	github.com/muesli/reflow v0.3.0 // indirect
 	github.com/muesli/termenv v0.16.0 // indirect
 	github.com/patrickmn/go-cache v2.1.0+incompatible // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
