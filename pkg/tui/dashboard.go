@@ -150,7 +150,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch msg.String() {
-		case "q", "ctrl+c":
+		case "ctrl+c":
 			return m, tea.Quit
 		case "tab":
 			if m.mode == modeDashboard {
@@ -188,7 +188,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.selectedRuleIdx++
 				return m, nil
 			}
-		case "a":
+		case "ctrl+t":
 			if m.mode == modeCombined && len(m.rules) > 0 {
 				rule := &m.rules[m.selectedRuleIdx]
 				if rule.Action == "REDACT" {
@@ -364,7 +364,7 @@ func (m model) dashboardView() string {
 		infoStyle.Render(fmt.Sprintf("Labels: %s", strings.Join(m.availableLabels, ", "))),
 	)
 
-	footer := helpStyle.Render(" [tab] Rule Center  [w] Watch  [r] Resp Redact  [q] Quit")
+	footer := helpStyle.Render(" [tab] Rule Center  [w] Watch  [r] Resp Redact  [ctrl+c] Quit")
 
 	return fmt.Sprintf("%s\n\n%s\n\n%s\n%s", 
 		header, 
@@ -417,7 +417,7 @@ func (m model) combinedView() string {
 	mainContent := lipgloss.JoinHorizontal(lipgloss.Top, leftSide, rightSide)
 	
 	status := infoStyle.Render(fmt.Sprintf("Active Labels: %s", strings.Join(m.availableLabels, ", ")))
-	footer := helpStyle.Render(" [tab] Dashboard  [up/down] Select Rule  [a] Toggle Action  [q] Quit")
+	footer := helpStyle.Render(" [tab] Dashboard  [up/down] Select Rule  [ctrl+t] Toggle Action  [ctrl+c] Quit")
 
 	return fmt.Sprintf("%s\n\n%s\n\n%s\n%s", 
 		header, 
