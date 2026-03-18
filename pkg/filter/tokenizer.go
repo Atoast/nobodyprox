@@ -171,6 +171,9 @@ func (t *WordPieceTokenizer) wordPiece(word string) []string {
 type BPETokenizer struct {
 	tk     *tokenizer.Tokenizer
 	maxLen int
+	clsId  int
+	sepId  int
+	padId  int
 }
 
 // NewBPETokenizer loads a tokenizer.json file and creates a new BPETokenizer
@@ -180,9 +183,25 @@ func NewBPETokenizer(path string, maxLen int) (*BPETokenizer, error) {
 		return nil, fmt.Errorf("failed to load BPE tokenizer: %v", err)
 	}
 
+	getSpecial := func(tokens ...string) int {
+		for _, tok := range tokens {
+			if id, ok := tk.TokenToId(tok); ok {
+				return id
+			}
+		}
+		return 0 // default fallback
+	}
+
+	clsId := getSpecial("[CLS]", "<bos>", "<s>")
+	sepId := getSpecial("[SEP]", "<eos>", "</s>")
+	padId := getSpecial("[PAD]", "<pad>")
+
 	return &BPETokenizer{
 		tk:     tk,
 		maxLen: maxLen,
+		clsId:  clsId,
+		sepId:  sepId,
+		padId:  padId,
 	}, nil
 }
 
@@ -204,13 +223,35 @@ func (t *BPETokenizer) Tokenize(text string) (ids, mask, starts, ends []int) {
 		return
 	}
 
-	ids = en.Ids
-	mask = en.AttentionMask
-	
-	// Convert [][2]int to two []int
-	for _, offset := range en.Offsets {
-		starts = append(starts, offset[0])
-		ends = append(ends, offset[1])
+	needsSpecials := true
+	if len(en.Ids) > 0 && en.Ids[0] == t.clsId {
+		needsSpecials = false
+	}
+
+	if needsSpecials {
+		ids = []int{t.clsId}
+		ids = append(ids, en.Ids...)
+		ids = append(ids, t.sepId)
+
+		mask = []int{1}
+		mask = append(mask, en.AttentionMask...)
+		mask = append(mask, 1)
+
+		starts = []int{0}
+		ends = []int{0}
+		for _, offset := range en.Offsets {
+			starts = append(starts, offset[0])
+			ends = append(ends, offset[1])
+		}
+		starts = append(starts, len(text))
+		ends = append(ends, len(text))
+	} else {
+		ids = en.Ids
+		mask = en.AttentionMask
+		for _, offset := range en.Offsets {
+			starts = append(starts, offset[0])
+			ends = append(ends, offset[1])
+		}
 	}
 
 	if len(ids) > t.maxLen {
@@ -221,7 +262,7 @@ func (t *BPETokenizer) Tokenize(text string) (ids, mask, starts, ends []int) {
 	}
 
 	for len(ids) < t.maxLen {
-		ids = append(ids, 0)
+		ids = append(ids, t.padId)
 		mask = append(mask, 0)
 		starts = append(starts, 0)
 		ends = append(ends, 0)

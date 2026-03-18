@@ -115,26 +115,22 @@ func NewONNXProvider(modelPath, vocabPath, configPath, onnxURL, modelURL, vocabU
 	}
 
 	var tokenTypeIdsTensor *ort.Tensor[int64]
-	var inputValues []ort.Value
-	inputValues = append(inputValues, inputIdsTensor, attentionMaskTensor)
+	inputValues := make([]ort.Value, len(inputNames))
 
-	// Only allocate token_type_ids if the model expects it
-	hasTokenTypeIds := false
-	for _, name := range inputNames {
-		if name == "token_type_ids" {
-			hasTokenTypeIds = true
-			break
+	for i, name := range inputNames {
+		if name == "input_ids" {
+			inputValues[i] = inputIdsTensor
+		} else if name == "attention_mask" {
+			inputValues[i] = attentionMaskTensor
+		} else if name == "token_type_ids" {
+			tokenTypeIdsTensor, err = ort.NewEmptyTensor[int64](inputShape)
+			if err != nil {
+				inputIdsTensor.Destroy()
+				attentionMaskTensor.Destroy()
+				return nil, err
+			}
+			inputValues[i] = tokenTypeIdsTensor
 		}
-	}
-
-	if hasTokenTypeIds {
-		tokenTypeIdsTensor, err = ort.NewEmptyTensor[int64](inputShape)
-		if err != nil {
-			inputIdsTensor.Destroy()
-			attentionMaskTensor.Destroy()
-			return nil, err
-		}
-		inputValues = append(inputValues, tokenTypeIdsTensor)
 	}
 
 	// Calculate numLabels from mapping
