@@ -9,6 +9,7 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/muesli/reflow/wordwrap"
 	"github.com/nobodyprox/nobodyprox/pkg/config"
 	"github.com/nobodyprox/nobodyprox/pkg/event"
 	"github.com/nobodyprox/nobodyprox/pkg/filter"
@@ -105,6 +106,12 @@ func NewModel(watchMode, redactResponses bool, provider, modelName string, label
 	ti.Focus()
 	ti.CharLimit = 512
 	ti.Width = 60
+
+	inputBg := lipgloss.Color("#343942")
+	ti.Prompt = "> "
+	ti.PromptStyle = lipgloss.NewStyle().Foreground(purple).Bold(true).Background(inputBg)
+	ti.TextStyle = lipgloss.NewStyle().Background(inputBg)
+	ti.PlaceholderStyle = lipgloss.NewStyle().Foreground(gray).Background(inputBg)
 
 	// Get initial rules from engine
 	rules := make([]config.Rule, len(engine.Rules))
@@ -297,11 +304,13 @@ func (m *model) wrapAndAppend(logList []string, input string, width int, withTim
 	}
 	indent := strings.Repeat(" ", len(prefix))
 	
-	lines := strings.Split(input, "\n")
 	availableWidth := width - len(prefix) - 2
 	if availableWidth < 10 {
 		availableWidth = 40
 	}
+
+	wrapped := wordwrap.String(input, availableWidth)
+	lines := strings.Split(wrapped, "\n")
 
 	for i, line := range lines {
 		line = strings.TrimRight(line, "\r")
@@ -310,19 +319,10 @@ func (m *model) wrapAndAppend(logList []string, input string, width int, withTim
 			continue
 		}
 
-		for len(line) > 0 {
-			chunkLen := availableWidth
-			if len(line) < chunkLen {
-				chunkLen = len(line)
-			}
-			
-			chunk := line[:chunkLen]
-			if i == 0 && len(line) == len(lines[0]) && withTimestamp {
-				logList = append(logList, prefix+chunk)
-			} else {
-				logList = append(logList, indent+chunk)
-			}
-			line = line[chunkLen:]
+		if i == 0 && withTimestamp {
+			logList = append(logList, prefix+line)
+		} else {
+			logList = append(logList, indent+line)
 		}
 	}
 
@@ -383,7 +383,13 @@ func (m model) combinedView() string {
 	// --- Left Side: Builder ---
 	leftWidth := int(float64(m.width) * 0.6)
 	builderView := viewportStyle.Width(leftWidth).Height(sharedHeight).Render(m.builderViewport.View())
-	inputArea := "\n" + builderInputLineStyle.Render(" Input: ") + m.textInput.View()
+	
+	inputBg := lipgloss.Color("#343942")
+	inputArea := "\n" + lipgloss.NewStyle().
+		Background(inputBg).
+		Padding(0, 1).
+		Width(leftWidth - 2). // Match viewport inner width roughly
+		Render(m.textInput.View())
 	
 	legend := legendStyle.Render(
 		lipgloss.JoinVertical(lipgloss.Left,
@@ -409,10 +415,12 @@ func (m model) combinedView() string {
 		rb.WriteString(style.Render(line) + "\n")
 	}
 	
+	ruleHelp := helpStyle.Render("[up/down] Select  [ctrl+t] Toggle")
+
 	rightSide := viewportStyle.
 		Width(rightWidth).
 		Height(sharedHeight).
-		Render(lipgloss.JoinVertical(lipgloss.Left, "Active Rules:\n", rb.String()))
+		Render(lipgloss.JoinVertical(lipgloss.Left, "Active Rules:", ruleHelp, "", rb.String()))
 
 	// --- Layout ---
 	mainContent := lipgloss.JoinHorizontal(lipgloss.Top, leftSide, rightSide)
@@ -421,7 +429,7 @@ func (m model) combinedView() string {
 	
 	headerBlock := lipgloss.JoinVertical(lipgloss.Left, header, status)
 
-	footer := helpStyle.Render(" [tab] Dashboard  [up/down] Select Rule  [ctrl+t] Toggle Action  [ctrl+c] Quit")
+	footer := helpStyle.Render(" [tab] Dashboard  [ctrl+c] Quit")
 
 	return fmt.Sprintf("%s\n\n%s\n\n%s", 
 		headerBlock, 
