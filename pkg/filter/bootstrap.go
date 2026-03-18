@@ -4,7 +4,6 @@ import (
 	"archive/zip"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -15,9 +14,9 @@ import (
 
 // BootstrapAll prepares all models defined in the configuration
 func BootstrapAll(cfg *config.Config) error {
-	log.Println("[Bootstrap] Starting full environment setup...")
+	fmt.Println("[Bootstrap] Starting full environment setup...")
 	for name, m := range cfg.ONNXModels {
-		log.Printf("[Bootstrap] Preparing model: %s", name)
+		fmt.Printf("[Bootstrap] Preparing model: %s\n", name)
 		err := BootstrapONNX(m.ModelPath, m.VocabPath, m.ConfigPath, cfg.ONNXRuntimeURL, m.ModelDownloadURL, m.VocabDownloadURL, m.ConfigDownloadURL)
 		if err != nil {
 			return fmt.Errorf("failed to bootstrap model %s: %v", name, err)
@@ -31,11 +30,11 @@ func BootstrapONNX(modelPath, vocabPath, configPath, onnxURL, modelURL, vocabURL
 	// 1. Check/Download onnxruntime shared library
 	libName := getSharedLibName()
 	if _, err := os.Stat(libName); os.IsNotExist(err) {
-		log.Printf("[Bootstrap] %s missing. Starting download...", libName)
+		fmt.Printf("[Bootstrap] %s missing. Starting download...\n", libName)
 		if err := downloadAndExtractDLL(onnxURL, libName); err != nil {
 			return fmt.Errorf("failed to bootstrap %s: %v", libName, err)
 		}
-		log.Printf("[Bootstrap] %s installed successfully.", libName)
+		fmt.Printf("[Bootstrap] %s installed successfully.\n", libName)
 	}
 
 	// 2. Ensure models directory exists
@@ -48,11 +47,11 @@ func BootstrapONNX(modelPath, vocabPath, configPath, onnxURL, modelURL, vocabURL
 
 	// 3. Check/Download Model
 	if _, err := os.Stat(modelPath); os.IsNotExist(err) {
-		log.Printf("[Bootstrap] Model missing at %s. Starting download...", modelPath)
+		fmt.Printf("[Bootstrap] Model missing at %s. Starting download...\n", modelPath)
 		if err := downloadFile(modelURL, modelPath); err != nil {
 			return fmt.Errorf("failed to bootstrap model: %v", err)
 		}
-		log.Println("[Bootstrap] Model downloaded successfully.")
+		fmt.Println("[Bootstrap] Model downloaded successfully.")
 	}
 
 	// 4. Check/Download Vocab/Tokenizer
@@ -61,21 +60,21 @@ func BootstrapONNX(modelPath, vocabPath, configPath, onnxURL, modelURL, vocabURL
 		if strings.HasSuffix(vocabPath, ".json") {
 			label = "Tokenizer"
 		}
-		log.Printf("[Bootstrap] %s missing at %s. Starting download...", label, vocabPath)
+		fmt.Printf("[Bootstrap] %s missing at %s. Starting download...\n", label, vocabPath)
 		if err := downloadFile(vocabURL, vocabPath); err != nil {
 			return fmt.Errorf("failed to bootstrap %s: %v", label, err)
 		}
-		log.Printf("[Bootstrap] %s downloaded successfully.", label)
+		fmt.Printf("[Bootstrap] %s downloaded successfully.\n", label)
 	}
 
 	// 5. Check/Download Config (Optional)
 	if configPath != "" && configURL != "" {
 		if _, err := os.Stat(configPath); os.IsNotExist(err) {
-			log.Printf("[Bootstrap] Config missing at %s. Starting download...", configPath)
+			fmt.Printf("[Bootstrap] Config missing at %s. Starting download...\n", configPath)
 			if err := downloadFile(configURL, configPath); err != nil {
 				return fmt.Errorf("failed to bootstrap config: %v", err)
 			}
-			log.Println("[Bootstrap] Config downloaded successfully.")
+			fmt.Println("[Bootstrap] Config downloaded successfully.")
 		}
 	}
 

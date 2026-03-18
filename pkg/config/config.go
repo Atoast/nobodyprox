@@ -86,10 +86,10 @@ proxy_port: 8080
 # Options: 
 #   - "prose": Fast, pure-Go provider (default).
 #   - "onnx": High-accuracy ML provider (requires onnxruntime.dll).
-ner_provider: prose
+ner_provider: onnx
 
 # The active ONNX model to use from the onnx_models map below.
-active_model: bert-multilingual
+active_model: mmbert-scandi
 
 # When true, the proxy logs sensitive data found but does NOT redact it.
 # Can be overridden by the --watch command line flag.
@@ -122,6 +122,13 @@ onnx_models:
         model_download_url: https://huggingface.co/Xenova/bert-base-multilingual-cased-ner-hrl/resolve/main/onnx/model_quantized.onnx
         vocab_download_url: https://huggingface.co/Xenova/bert-base-multilingual-cased-ner-hrl/resolve/main/vocab.txt
         config_download_url: https://huggingface.co/Xenova/bert-base-multilingual-cased-ner-hrl/resolve/main/config.json
+    mmbert-scandi:
+        model_path: models/mmbert-scandi/model.onnx
+        vocab_path: models/mmbert-scandi/tokenizer.json
+        config_path: models/mmbert-scandi/config.json
+        # Note: You still need to manually convert the Scandi model to ONNX for now, 
+        # or provide a direct download URL if available.
+        config_download_url: https://huggingface.co/MediaCatch/mmBERT-base-scandi-ner/resolve/main/config.json
 
 # Custom regex and NER rules for PII detection.
 # Rules can be based on a regex "pattern" or an NER "entity_type".
