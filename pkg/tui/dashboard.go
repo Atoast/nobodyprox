@@ -27,7 +27,7 @@ var (
 	green  = lipgloss.Color("#04B575")
 	blue   = lipgloss.Color("#4A90E2")
 	gray   = lipgloss.Color("#888888")
-	dark   = lipgloss.Color("#3C3C3C")
+	dark   = lipgloss.Color("#767676")
 	white  = lipgloss.Color("#FAFAFA")
 
 	// Styles
@@ -364,12 +364,13 @@ func (m model) dashboardView() string {
 		infoStyle.Render(fmt.Sprintf("Labels: %s", strings.Join(m.availableLabels, ", "))),
 	)
 
+	headerBlock := lipgloss.JoinVertical(lipgloss.Left, header, status)
+
 	footer := helpStyle.Render(" [tab] Rule Center  [w] Watch  [r] Resp Redact  [ctrl+c] Quit")
 
-	return fmt.Sprintf("%s\n\n%s\n\n%s\n%s", 
-		header, 
+	return fmt.Sprintf("%s\n\n%s\n\n%s", 
+		headerBlock, 
 		viewportStyle.Render(m.viewport.View()), 
-		status,
 		footer)
 }
 
@@ -417,12 +418,14 @@ func (m model) combinedView() string {
 	mainContent := lipgloss.JoinHorizontal(lipgloss.Top, leftSide, rightSide)
 	
 	status := infoStyle.Render(fmt.Sprintf("Active Labels: %s", strings.Join(m.availableLabels, ", ")))
+	
+	headerBlock := lipgloss.JoinVertical(lipgloss.Left, header, status)
+
 	footer := helpStyle.Render(" [tab] Dashboard  [up/down] Select Rule  [ctrl+t] Toggle Action  [ctrl+c] Quit")
 
-	return fmt.Sprintf("%s\n\n%s\n\n%s\n%s", 
-		header, 
+	return fmt.Sprintf("%s\n\n%s\n\n%s", 
+		headerBlock, 
 		mainContent,
-		status,
 		footer)
 }
 
